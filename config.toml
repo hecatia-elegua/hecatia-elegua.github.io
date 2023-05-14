@@ -1,0 +1,43 @@
+base_url = "https://hecatia-elegua.github.io"
+
+# to be used later on by a js lib
+build_search_index = false
+# just atom in this case
+generate_feed = true
+
+# this is useful for bookmarking
+title = "hecatia"
+
+# I want this
+external_links_target_blank = true
+
+# super simple and nice light theme
+theme = "hook"
+
+[markdown]
+highlight_code = true
+# I just use css filter-invert(1) for light theme
+highlight_theme = "ayu-dark"
+
+# highlight_theme = "css"
+# highlight_themes_css = [
+#   { theme = "ayu-dark", filename = "syntax.css" },
+# ]
+# <link rel="stylesheet" type="text/css" href="/syntax.css" />
+ 
+
+# ranking:
+# ayu-dark
+# boron
+# ayu-mirage, charcoal
+# 1337, axar
+# gruvbox-dark, nyx-bold, two-dark
+# base16-atelierdune-light
+
+# wild when not inverted: cheerfully-light
+
+[extra]
+links = [
+    { title = "github", href = "https://github.com/hecatia-elegua" },
+    { title = "mail", href = "mailto:hecatia.elegua@gmail.com" },
+]

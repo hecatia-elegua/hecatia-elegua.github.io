@@ -1,0 +1,55 @@
+{% extends "hook/templates/index.html" %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="{{ get_url(path='style.css', cachebust=true) }}">
+<style>
+    a {
+        text-decoration: none;
+    }
+    aside {
+        margin: 1.5em;
+    }
+    table {
+        border-spacing: 0.5em;
+    }
+    body.dark-mode table {
+        border: 1px solid #eee;
+    }
+    body:not(.dark-mode) table {
+        border: 1px solid #222;
+    }
+    th {
+        text-align: left;
+    }
+    body:not(.dark-mode) pre {
+        filter: invert(1);
+    }
+    .toc ul {
+        list-style-type: none;
+    }
+</style>
+{% block rss %}
+    <link rel="alternate" type="application/atom+xml" title="ATOM" href="{{ get_url(path="atom.xml", trailing_slash=false) }}">
+{% endblock %}
+<script>
+    window.addEventListener('load', function() {
+        for (const ref of document.getElementsByClassName('footnote-reference')) {
+            const hash = ref.children[0].hash.substring(1);
+            const refhash = 'ref:' + hash;
+            ref.id = refhash;
+        }
+
+        for (const footnote of document.getElementsByClassName('footnote-definition')) {
+            const hash = footnote.id;
+            const refhash = 'ref:' + hash;
+            const backlink = document.createElement('a');
+            backlink.href = '#' + refhash;
+            backlink.className = 'footnote-backlink';
+            backlink.innerText = '↩';
+            const paras = footnote.children;
+            const lastPara = paras[paras.length - 1];
+            lastPara.appendChild(backlink);
+        }
+    });
+</script>
+{% endblock extra_head %}
