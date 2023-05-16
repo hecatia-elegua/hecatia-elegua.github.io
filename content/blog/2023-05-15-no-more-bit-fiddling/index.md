@@ -1,7 +1,7 @@
 +++
 title = "no more bit fiddling - introducing bilge"
 description = "Use a better alternative to bit fiddling in low-level Rust: bilge. It builds upon the idea of bitfields to declare easy-to-use memory-mapped registers."
-###### updated =
+updated = 2023-05-16
 +++
 
 ## TLDR
@@ -784,6 +784,8 @@ Having said and built all this, I want to thank you for reading this far!
 This was my first longform post and took quite a while to write. I hope this finds some people who maybe know more about rust's internals and could guide me or help implementing arbitrary sized integers and bitfields into rust.
 
 If any bitfield crate maintainers read this: Could we somehow open up a working group / chat to merge at least some of our efforts and get bitfields into rust?
+
+[Discuss this article on /r/rust](https://www.reddit.com/r/rust/comments/13ic0mf/no_more_bit_fiddling_and_introducing_bilge/)
 
 <br><br><br>
 
