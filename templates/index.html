@@ -31,6 +31,7 @@
 {% block rss %}
     <link rel="alternate" type="application/atom+xml" title="ATOM" href="{{ get_url(path="atom.xml", trailing_slash=false) }}">
 {% endblock %}
+<!-- TODO: https://evilmartians.com/chronicles/how-to-favicon-in-2021-six-files-that-fit-most-needs -->
 <link rel="icon" type="image/png" href="{{ get_url(path='favicon.png') }}" />
 <script>
     window.addEventListener('load', function() {

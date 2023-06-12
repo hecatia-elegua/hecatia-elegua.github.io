@@ -5,7 +5,7 @@ extra.in_header = true
 
 After 5 years of learning computer science and 2 years of almost exclusively working on rust projects, I would describe myself as intermediate to advanced.
 
-I'm not that deep into type-system wizardry (yet) and have mostly worked on low level projects.
+I'm not that deep into type-system wizardry or unsafe/FFI code (yet) and have mostly worked on low level projects.
 A jack of all trades, turning into a master of one (drivers and hardware access).
 
 I simplify systems to the best of my abilities, making them learnable and maintainable.

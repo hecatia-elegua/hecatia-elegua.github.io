@@ -1,7 +1,7 @@
 +++
 title = "no more bit fiddling - introducing bilge"
 description = "Use a better alternative to bit fiddling in low-level Rust: bilge. It builds upon the idea of bitfields to declare easy-to-use memory-mapped registers."
-updated = 2023-05-16
+updated = 2023-06-12
 +++
 
 ## TLDR
@@ -46,7 +46,7 @@ Imagine the mouse sent us this value:
 let mouse_packet = 0b00011000_00000011_00001_0_1_0;
 ```
 
-For reading purposes, I delimit the different fields with `_`. As you can see, bit 0 is at the end of the value. This is called little-endian (bit-) ordering.
+For reading purposes, I delimit the different fields with `_`. As you can see, the left mouse button bit is at the end of the value. This is called little-endian (bit-) ordering.
 
 Our right mouse button is therby in the second-to-last bit (in this case, set to 1).
 So, if we want to have a value containing only the information that a right-click happened, we need to remove all other bits, by using a mask:
@@ -192,7 +192,7 @@ With "quirky structure" I specifically mean the proc macro code itself. Yes, mac
 A nice read on this is [Structuring, testing and debugging procedural macro crates](https://ferrous-systems.com/blog/testing-proc-macros/#the-pipeline), specifically the part about "the pipeline".
 Just using basic naming, like `analyze` for getting basic information from an annotated item and `generate` for anything generating a `TokenStream`, works wonders.
 
-As an example, I hope [this flow](https://github.com/hecatia-elegua/bilge/blob/2008c9c00a0a7c7d796eec3c1a7d5b72fa7bec90/bilge-impl/src/from_bits.rs#L7) is readable enough. I'm only a bit unsatisfied about the low amount of docs.
+As an example, I hope [this flow](https://github.com/hecatia-elegua/bilge/blob/2008c9c00a0a7c7d796eec3c1a7d5b72fa7bec90/bilge-impl/src/from_bits.rs#L7) is readable enough. I'm only a bit unsatisfied about the low amount of docs, but naming goes a long way.
 
 The main proc macro `lib.rs` just contains whatever documentation, `TokenStream`-conversion and so on and immediately calls into a different module.
 For easy search inside the filesystem, the module (e.g. `from_bits`) has the same name as the proc macro (e.g. `FromBits`) and contains a function (e.g. `from_bits`) of the same name as well. This top-level function then contains the very general routing of parse -> analyze -> expand.
@@ -294,6 +294,12 @@ If we talk about the bitfield implementation itself, it's interesting that their
 It only matters for ergonomics in some cases.
 
 I assume it's an array because `modular-bitfield` was based on [this dtolnay workshop project](https://github.com/dtolnay/proc-macro-workshop/blob/a2a05d0aafcdf9fe13f1ca0bbe5f74418401b19f/README.md?plain=1#L223). This could be useful for bitfields larger than u128, but if our bitfields get larger than u128, we can split them into multiple bitfields of a primitive size (like u64) and put those in a parent struct which is not a bitfield.
+
+<aside>
+
+Edit/Sidenote: Another reason why an array can be useful is if your bitfield needs to be `align(1)`, although I'm wondering if `#[repr(align(1))]` or `#[repr(packed)]` would be enough here?
+
+</aside>
 
 Still, `modular-bitfield` is pretty good and worked nicely for getting PS/2 up and running.
 
@@ -697,13 +703,13 @@ The frontend is pretty similar to `modular-bitfield`, though `FromBits` and othe
 We use `#[derive(FromBits)]` to also allow parsing the packet from raw bytes, similar to what `modular-bitfield` enables by default:
 
 ```rust
-MousePacket::from(0b00011000_00000011_00001_0_1_0);
+MousePacket::from(u24::new(0b00011000_00000011_00001_0_1_0));
 ```
 
 Without it, we can still use the generated constructor:
 
 ```rust
-MousePacket::new(0, 1, 0, 0b00001, 0b00000011, 0b00011000);
+MousePacket::new(false, true, false, u5::new(0b00001), 0b00000011, 0b00011000);
 ```
 
 Of course we also have getters and setters.
