@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="">
+    <title>hecatia | Page Not Found</title>
+    
+<link rel="stylesheet" href="https://hecatia-elegua.github.io/style.css?h=8b0c8e67741cde488629">
+<style>
+    a {
+        text-decoration: none;
+    }
+    aside {
+        margin: 1.5em;
+    }
+    table {
+        border-spacing: 0.5em;
+    }
+    body.dark-mode table {
+        border: 1px solid #eee;
+    }
+    body:not(.dark-mode) table {
+        border: 1px solid #222;
+    }
+    th {
+        text-align: left;
+    }
+    body:not(.dark-mode) pre {
+        filter: invert(1);
+    }
+    .toc ul {
+        list-style-type: none;
+    }
+</style>
+
+    <link rel="alternate" type="application/atom+xml" title="ATOM" href="https://hecatia-elegua.github.io/atom.xml">
+
+<!-- TODO: https://evilmartians.com/chronicles/how-to-favicon-in-2021-six-files-that-fit-most-needs -->
+<link rel="icon" type="image/png" href="https://hecatia-elegua.github.io/favicon.png" />
+<script>
+    window.addEventListener('load', function() {
+        for (const ref of document.getElementsByClassName('footnote-reference')) {
+            const hash = ref.children[0].hash.substring(1);
+            const refhash = 'ref:' + hash;
+            ref.id = refhash;
+        }
+
+        for (const footnote of document.getElementsByClassName('footnote-definition')) {
+            const hash = footnote.id;
+            const refhash = 'ref:' + hash;
+            const backlink = document.createElement('a');
+            backlink.href = '#' + refhash;
+            backlink.className = 'footnote-backlink';
+            backlink.innerText = '↩';
+            const paras = footnote.children;
+            const lastPara = paras[paras.length - 1];
+            lastPara.appendChild(backlink);
+        }
+    });
+</script>
+
+</head>
+<body>
+    
+<header class="space">
+    <a href="https:&#x2F;&#x2F;hecatia-elegua.github.io">&LeftArrow; Home</a>
+</header>
+
+    
+<main>
+    <h1>Page Not Found (404)</h1>
+    <p>The page you were looking for could not be found.</p>
+</main>
+
+    <div class="dark-mode-buttons">
+        <button class="dark-mode-button" id="dark-mode-on"><img src="https://hecatia-elegua.github.io/dark_mode.svg" width="24" height="24" alt="Dark mode" aria-label="dark mode toggle" title="Dark mode"></button>
+        <button class="dark-mode-button" id="dark-mode-off"><img src="https://hecatia-elegua.github.io/light_mode.svg" width="24" height="24" alt="Light mode" aria-label="light mode toggle" title="Light mode"></button>
+    </div>
+    <script>
+        const cls = document.body.classList;
+        const getSessionTheme = sessionStorage.getItem("theme");
+        if (getSessionTheme === "dark") {
+            cls.toggle("dark-mode", true);
+        } else if (getSessionTheme === "light") {
+            cls.toggle("dark-mode", false);
+        } else if (window.matchMedia("(prefers-color-scheme: dark)").matches) {
+            cls.toggle("dark-mode", true);
+        }
+
+        document.getElementById("dark-mode-on").addEventListener("click", function(e) {
+            cls.toggle("dark-mode", true);
+            sessionStorage.setItem("theme", "dark");
+        });
+        document.getElementById("dark-mode-off").addEventListener("click", function(e) {
+            cls.toggle("dark-mode", false);
+            sessionStorage.setItem("theme", "light");
+        });
+    </script>
+    <noscript>
+        <style>
+            .dark-mode-buttons {
+                display: none;
+            }
+        </style>
+    </noscript>
+</body>
+</html>

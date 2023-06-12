@@ -1,0 +1,815 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="Use a better alternative to bit fiddling in low-level Rust: bilge. It builds upon the idea of bitfields to declare easy-to-use memory-mapped registers.">
+    <title>no more bit fiddling - introducing bilge - hecatia</title>
+    
+<link rel="stylesheet" href="https://hecatia-elegua.github.io/style.css?h=8b0c8e67741cde488629">
+<style>
+    a {
+        text-decoration: none;
+    }
+    aside {
+        margin: 1.5em;
+    }
+    table {
+        border-spacing: 0.5em;
+    }
+    body.dark-mode table {
+        border: 1px solid #eee;
+    }
+    body:not(.dark-mode) table {
+        border: 1px solid #222;
+    }
+    th {
+        text-align: left;
+    }
+    body:not(.dark-mode) pre {
+        filter: invert(1);
+    }
+    .toc ul {
+        list-style-type: none;
+    }
+</style>
+
+    <link rel="alternate" type="application/atom+xml" title="ATOM" href="https://hecatia-elegua.github.io/atom.xml">
+
+<!-- TODO: https://evilmartians.com/chronicles/how-to-favicon-in-2021-six-files-that-fit-most-needs -->
+<link rel="icon" type="image/png" href="https://hecatia-elegua.github.io/favicon.png" />
+<script>
+    window.addEventListener('load', function() {
+        for (const ref of document.getElementsByClassName('footnote-reference')) {
+            const hash = ref.children[0].hash.substring(1);
+            const refhash = 'ref:' + hash;
+            ref.id = refhash;
+        }
+
+        for (const footnote of document.getElementsByClassName('footnote-definition')) {
+            const hash = footnote.id;
+            const refhash = 'ref:' + hash;
+            const backlink = document.createElement('a');
+            backlink.href = '#' + refhash;
+            backlink.className = 'footnote-backlink';
+            backlink.innerText = '↩';
+            const paras = footnote.children;
+            const lastPara = paras[paras.length - 1];
+            lastPara.appendChild(backlink);
+        }
+    });
+</script>
+
+</head>
+<body>
+    
+<header class="space">
+    <a href="https:&#x2F;&#x2F;hecatia-elegua.github.io">&LeftArrow; Home</a>
+</header>
+
+    
+<main>
+    <h1>no more bit fiddling - introducing bilge</h1>
+    
+    <p class="secondary">15 May, 2023 - 4096 words - 21 minute read</p>
+    
+
+    
+    <details class="toc"><summary>Contents</summary>
+        <ul>
+        
+            <li>
+                <a href="https://hecatia-elegua.github.io/blog/no-more-bit-fiddling/#tldr">TLDR</a>
+                
+            </li>
+        
+            <li>
+                <a href="https://hecatia-elegua.github.io/blog/no-more-bit-fiddling/#how-bit-fiddling-works-and-why-it-sucks">How bit fiddling works, and why it sucks</a>
+                
+                    <ul>
+                        
+                            <li>
+                                <a href="https://hecatia-elegua.github.io/blog/no-more-bit-fiddling/#basic-bit-fiddling">basic bit fiddling</a>
+                            </li>
+                        
+                            <li>
+                                <a href="https://hecatia-elegua.github.io/blog/no-more-bit-fiddling/#encapsulated-bit-fiddling">encapsulated bit fiddling</a>
+                            </li>
+                        
+                    </ul>
+                
+            </li>
+        
+            <li>
+                <a href="https://hecatia-elegua.github.io/blog/no-more-bit-fiddling/#how-bitfields-work-and-why-they-suck">How bitfields work, and why they &quot;suck&quot;</a>
+                
+            </li>
+        
+            <li>
+                <a href="https://hecatia-elegua.github.io/blog/no-more-bit-fiddling/#how-modular-bitfield-works-and-what-we-want-to-solve">How modular-bitfield works, and what we want to solve</a>
+                
+                    <ul>
+                        
+                            <li>
+                                <a href="https://hecatia-elegua.github.io/blog/no-more-bit-fiddling/#how-to-structure-procedural-macros">how to structure procedural macros</a>
+                            </li>
+                        
+                            <li>
+                                <a href="https://hecatia-elegua.github.io/blog/no-more-bit-fiddling/#why-the-builder-pattern-should-be-used-carefully">why the builder pattern should be used carefully</a>
+                            </li>
+                        
+                            <li>
+                                <a href="https://hecatia-elegua.github.io/blog/no-more-bit-fiddling/#type-centric-design-parse-don-t-validate">type-centric design - parse, don&#x27;t validate</a>
+                            </li>
+                        
+                            <li>
+                                <a href="https://hecatia-elegua.github.io/blog/no-more-bit-fiddling/#how-to-split-up-big-procedural-macros">how to split up big procedural macros</a>
+                            </li>
+                        
+                            <li>
+                                <a href="https://hecatia-elegua.github.io/blog/no-more-bit-fiddling/#implementation-peculiarities">implementation peculiarities</a>
+                            </li>
+                        
+                    </ul>
+                
+            </li>
+        
+            <li>
+                <a href="https://hecatia-elegua.github.io/blog/no-more-bit-fiddling/#how-bilge-came-to-be">How bilge came to be</a>
+                
+            </li>
+        
+            <li>
+                <a href="https://hecatia-elegua.github.io/blog/no-more-bit-fiddling/#building-bilge">Building bilge</a>
+                
+                    <ul>
+                        
+                            <li>
+                                <a href="https://hecatia-elegua.github.io/blog/no-more-bit-fiddling/#attribute-macro-as-a-scope">attribute macro as a scope</a>
+                            </li>
+                        
+                            <li>
+                                <a href="https://hecatia-elegua.github.io/blog/no-more-bit-fiddling/#deriving-tryfrom-and-from-for-bit-sized-enums">deriving TryFrom and From for bit-sized enums</a>
+                            </li>
+                        
+                            <li>
+                                <a href="https://hecatia-elegua.github.io/blog/no-more-bit-fiddling/#deriving-from-for-bit-sized-structs">deriving From for bit-sized structs</a>
+                            </li>
+                        
+                            <li>
+                                <a href="https://hecatia-elegua.github.io/blog/no-more-bit-fiddling/#deriving-tryfrom-for-bit-sized-structs">deriving TryFrom for bit-sized structs</a>
+                            </li>
+                        
+                            <li>
+                                <a href="https://hecatia-elegua.github.io/blog/no-more-bit-fiddling/#deriving-debug-for-bit-sized-structs-while-fixing-the-mess-i-made">deriving Debug for bit-sized structs, while fixing the mess I made</a>
+                            </li>
+                        
+                    </ul>
+                
+            </li>
+        
+            <li>
+                <a href="https://hecatia-elegua.github.io/blog/no-more-bit-fiddling/#how-bilge-works">How bilge works</a>
+                
+                    <ul>
+                        
+                            <li>
+                                <a href="https://hecatia-elegua.github.io/blog/no-more-bit-fiddling/#a-register-mapping-showcase">a register-mapping showcase</a>
+                            </li>
+                        
+                            <li>
+                                <a href="https://hecatia-elegua.github.io/blog/no-more-bit-fiddling/#easy-usage-explanations">easy usage explanations</a>
+                            </li>
+                        
+                    </ul>
+                
+            </li>
+        
+            <li>
+                <a href="https://hecatia-elegua.github.io/blog/no-more-bit-fiddling/#conclusion">Conclusion</a>
+                
+            </li>
+        
+        </ul>
+    </details>
+    
+
+    <div class="space"></div>
+    <h2 id="tldr"><a class="zola-anchor" href="#tldr" aria-label="Anchor link for: tldr">TLDR</a></h2>
+<p><em><code>bilge</code></em> is a new bitfield crate following in the footsteps of <code>modular-bitfield</code>, with improved ergonomics and type safety, while still being as performant as handmade bit fiddling.</p>
+<pre data-lang="rust" style="background-color:#0f1419;color:#bfbab0;" class="language-rust "><code class="language-rust" data-lang="rust"><span style="color:#bfbab0cc;">#</span><span>[</span><span style="color:#ffb454;">bitsize</span><span>(14)]
+</span><span style="color:#bfbab0cc;">#</span><span>[</span><span style="color:#ffb454;">derive</span><span>(FromBits)]
+</span><span style="color:#ff7733;">struct </span><span style="color:#59c2ff;">Register </span><span>{
+</span><span>    header</span><span style="color:#bfbab0cc;">:</span><span> u4,
+</span><span>    body</span><span style="color:#bfbab0cc;">:</span><span> u7,
+</span><span>    footer</span><span style="color:#bfbab0cc;">:</span><span> Footer,
+</span><span>}
+</span></code></pre>
+<h2 id="how-bit-fiddling-works-and-why-it-sucks"><a class="zola-anchor" href="#how-bit-fiddling-works-and-why-it-sucks" aria-label="Anchor link for: how-bit-fiddling-works-and-why-it-sucks">How bit fiddling works, and why it sucks</a></h2>
+<p>When working on low-level code, you often need to set or get single bits.
+Let's use a simple example to show how this works: Mouse Packets. These allow you to use your PC mouse in the first place.</p>
+<p>Specifically, this is how PS/2 mouse packets look like:</p>
+<table><thead><tr><th>bits</th><th>Description</th></tr></thead><tbody>
+<tr><td>0</td><td>left button</td></tr>
+<tr><td>1</td><td>right button</td></tr>
+<tr><td>2</td><td>middle button</td></tr>
+<tr><td>3..8</td><td>other important bits</td></tr>
+<tr><td>8..16</td><td>x-axis movement</td></tr>
+<tr><td>16..24</td><td>y-axis movement</td></tr>
+</tbody></table>
+<p>But in rust, we can (currently) only access 8 bits = 1 byte at once, using <code>u8</code>.
+Getting at smaller values can be done by so-called &quot;bit fiddling&quot;, using binary operators to shift by some offset and then masking some bits.</p>
+<h3 id="basic-bit-fiddling"><a class="zola-anchor" href="#basic-bit-fiddling" aria-label="Anchor link for: basic-bit-fiddling">basic bit fiddling</a></h3>
+<p>For example, let's see if the mouse has been right-clicked.
+Imagine the mouse sent us this value:</p>
+<pre data-lang="rust" style="background-color:#0f1419;color:#bfbab0;" class="language-rust "><code class="language-rust" data-lang="rust"><span style="color:#ff7733;">let</span><span> mouse_packet </span><span style="color:#f29668;">= </span><span style="color:#f29718;">0b00011000_00000011_00001_0_1_0</span><span style="color:#bfbab0cc;">;
+</span></code></pre>
+<p>For reading purposes, I delimit the different fields with <code>_</code>. As you can see, the left mouse button bit is at the end of the value. This is called little-endian (bit-) ordering.</p>
+<p>Our right mouse button is therby in the second-to-last bit (in this case, set to 1).
+So, if we want to have a value containing only the information that a right-click happened, we need to remove all other bits, by using a mask:</p>
+<pre data-lang="rust" style="background-color:#0f1419;color:#bfbab0;" class="language-rust "><code class="language-rust" data-lang="rust"><span style="color:#ff7733;">let</span><span> mouse_packet </span><span style="color:#f29668;">= </span><span style="color:#f29718;">0b00011000_00000011_00001_0_1_0</span><span style="color:#bfbab0cc;">;
+</span><span style="color:#ff7733;">let</span><span> mask </span><span style="color:#f29668;">=         </span><span style="color:#f29718;">0b00000000_00000000_00000_0_1_0</span><span style="color:#bfbab0cc;">;
+</span><span style="color:#ff7733;">let</span><span> right_clicked </span><span style="color:#f29668;">=</span><span> mouse_packet </span><span style="color:#f29668;">&amp;</span><span> mask</span><span style="color:#bfbab0cc;">;
+</span><span style="font-style:italic;color:#5c6773;">// right_clicked is now 0b00000000_00000000_00000_0_1_0, so, 0b10
+</span></code></pre>
+<p>And then we also have to shift the value into place:</p>
+<pre data-lang="rust" style="background-color:#0f1419;color:#bfbab0;" class="language-rust "><code class="language-rust" data-lang="rust"><span style="font-style:italic;color:#5c6773;">// bit offset of right_clicked in mouse_packet, counting from the left
+</span><span style="color:#ff7733;">let</span><span> bit_offset </span><span style="color:#f29668;">= </span><span style="color:#f29718;">1</span><span style="color:#bfbab0cc;">;
+</span><span style="font-style:italic;color:#5c6773;">// right_clicked is 0b10
+</span><span style="color:#ff7733;">let</span><span> right_clicked </span><span style="color:#f29668;">=</span><span> right_clicked </span><span style="color:#f29668;">&gt;&gt;</span><span> bit_offset</span><span style="color:#bfbab0cc;">;
+</span><span style="font-style:italic;color:#5c6773;">// right_clicked is now 1
+</span></code></pre>
+<p>If we imagine some user-code reacting to the right-click, it would be nice to convert this to a <code>bool</code>:</p>
+<pre data-lang="rust" style="background-color:#0f1419;color:#bfbab0;" class="language-rust "><code class="language-rust" data-lang="rust"><span style="color:#ff7733;">let</span><span> right_clicked </span><span style="color:#f29668;">=</span><span> right_clicked </span><span style="color:#f29668;">== </span><span style="color:#f29718;">1</span><span style="color:#bfbab0cc;">;
+</span><span style="color:#ff7733;">if</span><span> right_clicked {
+</span><span>    </span><span style="color:#f07178;">show_context_menu</span><span>()</span><span style="color:#bfbab0cc;">;
+</span><span>}
+</span></code></pre>
+<p>Now, we don't want this code floating around in <code>fn main()</code>, so let's put it in a struct.</p>
+<h3 id="encapsulated-bit-fiddling"><a class="zola-anchor" href="#encapsulated-bit-fiddling" aria-label="Anchor link for: encapsulated-bit-fiddling">encapsulated bit fiddling</a></h3>
+<p>We start by adding a wrapper struct:</p>
+<pre data-lang="rust" style="background-color:#0f1419;color:#bfbab0;" class="language-rust "><code class="language-rust" data-lang="rust"><span style="color:#ff7733;">struct </span><span style="color:#59c2ff;">MousePacket</span><span>(</span><span style="color:#ff7733;">u32</span><span>)</span><span style="color:#bfbab0cc;">;
+</span></code></pre>
+<p>And then put all of our access code inside:</p>
+<pre data-lang="rust" style="background-color:#0f1419;color:#bfbab0;" class="language-rust "><code class="language-rust" data-lang="rust"><span style="color:#ff7733;">impl </span><span style="color:#59c2ff;">MousePacket </span><span>{
+</span><span>    </span><span style="font-style:italic;color:#5c6773;">// let&#39;s add this for good measure
+</span><span>    </span><span style="color:#ff7733;">const fn </span><span style="color:#ffb454;">left_clicked</span><span>(</span><span style="color:#f29668;">&amp;</span><span style="color:#f29718;">self</span><span>) </span><span style="color:#bfbab0cc;">-&gt; </span><span style="color:#ff7733;">bool </span><span>{
+</span><span>        </span><span style="font-style:italic;color:#39bae6;">self</span><span style="color:#f29668;">.</span><span style="color:#f29718;">0 </span><span style="color:#f29668;">&amp; </span><span style="color:#f29718;">1 </span><span style="color:#f29668;">== </span><span style="color:#f29718;">1
+</span><span>    }
+</span><span>    </span><span style="color:#ff7733;">const fn </span><span style="color:#ffb454;">right_clicked</span><span>(</span><span style="color:#f29668;">&amp;</span><span style="color:#f29718;">self</span><span>) </span><span style="color:#bfbab0cc;">-&gt; </span><span style="color:#ff7733;">bool </span><span>{
+</span><span>        (</span><span style="font-style:italic;color:#39bae6;">self</span><span style="color:#f29668;">.</span><span style="color:#f29718;">0 </span><span style="color:#f29668;">&gt;&gt; </span><span style="color:#f29718;">1</span><span>) </span><span style="color:#f29668;">&amp; </span><span style="color:#f29718;">1 </span><span style="color:#f29668;">== </span><span style="color:#f29718;">1
+</span><span>    }
+</span><span>    </span><span style="font-style:italic;color:#5c6773;">/* add the other bit-fields here */
+</span><span>}
+</span></code></pre>
+<p>Which means our high-level code now looks like this:</p>
+<pre data-lang="rust" style="background-color:#0f1419;color:#bfbab0;" class="language-rust "><code class="language-rust" data-lang="rust"><span style="font-style:italic;color:#5c6773;">// again, imagine the mouse sent us this
+</span><span style="color:#ff7733;">let</span><span> mouse </span><span style="color:#f29668;">=</span><span> MousePacket(</span><span style="color:#f29718;">0b00011000_00000011_00001_0_1_0</span><span>)</span><span style="color:#bfbab0cc;">;
+</span><span style="color:#ff7733;">if</span><span> mouse</span><span style="color:#f29668;">.</span><span style="color:#f07178;">right_clicked</span><span>() {
+</span><span>    </span><span style="color:#f07178;">show_context_menu</span><span>()</span><span style="color:#bfbab0cc;">;
+</span><span>}
+</span></code></pre>
+<p>Now imagine you had a mouse with LEDs inside its buttons, which can be lit up by sending back a mouse packet with <code>right_clicked</code> set to true.</p>
+<p>I know, grandiose example, but I just wanted to show how to set bits as well:</p>
+<pre data-lang="rust" style="background-color:#0f1419;color:#bfbab0;" class="language-rust "><code class="language-rust" data-lang="rust"><span style="color:#ff7733;">impl </span><span style="color:#59c2ff;">MousePacket </span><span>{
+</span><span>    </span><span style="color:#ff7733;">const fn </span><span style="color:#ffb454;">set_right_clicked</span><span>(</span><span style="color:#f29668;">&amp;</span><span style="color:#ff7733;">mut </span><span style="color:#f29718;">self</span><span>, </span><span style="color:#f29718;">value</span><span style="color:#bfbab0cc;">: </span><span style="color:#ff7733;">bool</span><span>) </span><span style="color:#bfbab0cc;">-&gt; </span><span style="color:#ff7733;">bool </span><span>{
+</span><span>        </span><span style="font-style:italic;color:#5c6773;">// move right_clicked where it belongs
+</span><span>        </span><span style="color:#ff7733;">let</span><span> right_clicked </span><span style="color:#f29668;">= </span><span>(value </span><span style="color:#f29668;">as </span><span style="color:#ff7733;">u32</span><span>) </span><span style="color:#f29668;">&lt;&lt; </span><span style="color:#f29718;">1</span><span style="color:#bfbab0cc;">;
+</span><span>        </span><span style="font-style:italic;color:#5c6773;">// produce a mask which only ignores right_clicked
+</span><span>        </span><span style="font-style:italic;color:#5c6773;">// will look like this: 0b11111111_11111111_11111_1_0_1
+</span><span>        </span><span style="color:#ff7733;">let</span><span> others_mask </span><span style="color:#f29668;">= !</span><span>(</span><span style="color:#f29718;">0b1 </span><span style="color:#f29668;">&lt;&lt; </span><span style="color:#f29718;">1</span><span>)</span><span style="color:#bfbab0cc;">;
+</span><span>        </span><span style="font-style:italic;color:#5c6773;">// keep all fields besides right_clicked
+</span><span>        </span><span style="color:#ff7733;">let</span><span> other_values </span><span style="color:#f29668;">= </span><span style="font-style:italic;color:#39bae6;">self</span><span style="color:#f29668;">.</span><span style="color:#f29718;">0 </span><span style="color:#f29668;">&amp;</span><span> others_mask</span><span style="color:#bfbab0cc;">;
+</span><span>        </span><span style="font-style:italic;color:#5c6773;">// merge old fields and right_clicked
+</span><span>        </span><span style="font-style:italic;color:#39bae6;">self</span><span style="color:#f29668;">.</span><span style="color:#f29718;">0 </span><span style="color:#f29668;">=</span><span> other_values </span><span style="color:#f29668;">|</span><span> right_clicked</span><span style="color:#bfbab0cc;">;
+</span><span>    }
+</span><span>}
+</span></code></pre>
+<p>Since this follows some basic rules, it's a good idea to separate concerns and put all of this bit fiddling into an abstraction - bitfields.</p>
+<h2 id="how-bitfields-work-and-why-they-suck"><a class="zola-anchor" href="#how-bitfields-work-and-why-they-suck" aria-label="Anchor link for: how-bitfields-work-and-why-they-suck">How bitfields work, and why they &quot;suck&quot;</a></h2>
+<p>Besides the horrors of C bitfields (which I have only heard about), bitfields don't suck. I only dislike that they're not provided by rust itself <sup class="footnote-reference"><a href="#1">1</a></sup>. I'll try to work on that.</p>
+<p>Again, let's take our example and rewrite it into a bitfield, with some imaginary syntax:</p>
+<pre data-lang="rust" style="background-color:#0f1419;color:#bfbab0;" class="language-rust "><code class="language-rust" data-lang="rust"><span style="color:#ff7733;">struct </span><span style="color:#59c2ff;">MousePacket </span><span>{
+</span><span>    left_clicked</span><span style="color:#bfbab0cc;">: </span><span style="color:#ff7733;">bool</span><span>,
+</span><span>    right_clicked</span><span style="color:#bfbab0cc;">: </span><span style="color:#ff7733;">bool</span><span>,
+</span><span>    middle_clicked</span><span style="color:#bfbab0cc;">: </span><span style="color:#ff7733;">bool</span><span>,
+</span><span>    other_important_bits</span><span style="color:#bfbab0cc;">:</span><span> u5,
+</span><span>    x_movement</span><span style="color:#bfbab0cc;">: </span><span style="color:#ff7733;">u8</span><span>,
+</span><span>    y_movement</span><span style="color:#bfbab0cc;">: </span><span style="color:#ff7733;">u8</span><span>,
+</span><span>}
+</span></code></pre>
+<p>Since rust doesn't support bitfields, the only way to have this work is by using macros, so we would at least need to add something like <code>#[bitfield]</code> to our struct. Behind the scenes, this can generate very similar code to the one we implemented by hand.</p>
+<p>With that in place, we don't need to worry about bits, we would at most have to think about the size and order of our fields when interacting with hardware.</p>
+<p>This avoids bit fiddling errors (well, if the bitfield implementation doesn't contain bugs itself) and means you don't have to reimplement different kinds of <em>fallible nested-struct enum-tuple array field access</em>, which might not be so fun.</p>
+<p>It's also far easier to use for beginners, although I would argue even seniors, since the real question is: &quot;Why do we need to learn and debug bit fiddling if we can get most of it done by using structs?&quot;</p>
+<p>So, when I started working on <a href="https://github.com/theseus-os/Theseus/commit/a76ca0f09e3d4fcf4715aa225ef1213deebd3a53#diff-c51fc9762ba849c357b487bcc25b5eeadb0f3f1e358162f81076833391f996b5">Theseus' PS/2 driver code</a>, I found the most prominent bitfield crate to be <code>modular-bitfield</code>.</p>
+<h2 id="how-modular-bitfield-works-and-what-we-want-to-solve"><a class="zola-anchor" href="#how-modular-bitfield-works-and-what-we-want-to-solve" aria-label="Anchor link for: how-modular-bitfield-works-and-what-we-want-to-solve">How modular-bitfield works, and what we want to solve</a></h2>
+<p>With <a href="https://github.com/robbepop/modular-bitfield"><code>modular-bitfield</code></a>, we would define our example code like this:</p>
+<pre data-lang="rust" style="background-color:#0f1419;color:#bfbab0;" class="language-rust "><code class="language-rust" data-lang="rust"><span style="color:#bfbab0cc;">#</span><span>[</span><span style="color:#ffb454;">bitfield</span><span>(bits </span><span style="color:#f29668;">=</span><span> 24)]
+</span><span style="color:#ff7733;">struct </span><span style="color:#59c2ff;">MousePacket </span><span>{
+</span><span>    left_clicked</span><span style="color:#bfbab0cc;">: </span><span style="color:#ff7733;">bool</span><span>,
+</span><span>    right_clicked</span><span style="color:#bfbab0cc;">: </span><span style="color:#ff7733;">bool</span><span>,
+</span><span>    middle_clicked</span><span style="color:#bfbab0cc;">: </span><span style="color:#ff7733;">bool</span><span>,
+</span><span>    other_important_bits</span><span style="color:#bfbab0cc;">:</span><span> B5,
+</span><span>    x_movement</span><span style="color:#bfbab0cc;">:</span><span> B8,
+</span><span>    y_movement</span><span style="color:#bfbab0cc;">:</span><span> B8,
+</span><span>}
+</span></code></pre>
+<p>The <em>&quot;frontend&quot;</em> looks very readable, since we just use normal struct syntax and an attribute. Bit-sized types are specified using <code>B1</code>-<code>B128</code> and we can just use nested structs and enums.</p>
+<p>But there are some problems with the crate:</p>
+<ul>
+<li>it is unmaintained and has a quirky structure</li>
+<li>constructors use the builder pattern</li>
+<li><code>from_bytes</code> can easily take invalid arguments</li>
+<li>it is a big god-macro</li>
+</ul>
+<h3 id="how-to-structure-procedural-macros"><a class="zola-anchor" href="#how-to-structure-procedural-macros" aria-label="Anchor link for: how-to-structure-procedural-macros">how to structure procedural macros</a></h3>
+<p>With &quot;quirky structure&quot; I specifically mean the proc macro code itself. Yes, macro code is always a bit hard to read, but naming, documentation and file structure can guide you.</p>
+<p>A nice read on this is <a href="https://ferrous-systems.com/blog/testing-proc-macros/#the-pipeline">Structuring, testing and debugging procedural macro crates</a>, specifically the part about &quot;the pipeline&quot;.
+Just using basic naming, like <code>analyze</code> for getting basic information from an annotated item and <code>generate</code> for anything generating a <code>TokenStream</code>, works wonders.</p>
+<p>As an example, I hope <a href="https://github.com/hecatia-elegua/bilge/blob/2008c9c00a0a7c7d796eec3c1a7d5b72fa7bec90/bilge-impl/src/from_bits.rs#L7">this flow</a> is readable enough. I'm only a bit unsatisfied about the low amount of docs, but naming goes a long way.</p>
+<p>The main proc macro <code>lib.rs</code> just contains whatever documentation, <code>TokenStream</code>-conversion and so on and immediately calls into a different module.
+For easy search inside the filesystem, the module (e.g. <code>from_bits</code>) has the same name as the proc macro (e.g. <code>FromBits</code>) and contains a function (e.g. <code>from_bits</code>) of the same name as well. This top-level function then contains the very general routing of parse -&gt; analyze -&gt; expand.</p>
+<aside>
+<p>Another piece of advice I want to give: Just use functions. <br>
+Maybe it's just me, but using struct methods for all flow in <code>modular-bitfield</code> made it more confusing.</p>
+</aside>
+<h3 id="why-the-builder-pattern-should-be-used-carefully"><a class="zola-anchor" href="#why-the-builder-pattern-should-be-used-carefully" aria-label="Anchor link for: why-the-builder-pattern-should-be-used-carefully">why the builder pattern should be used carefully</a></h3>
+<p>Let's take a look at why the builder pattern isn't that great. To stay with our example of PS/2 code, imagine we have:</p>
+<pre data-lang="rust" style="background-color:#0f1419;color:#bfbab0;" class="language-rust "><code class="language-rust" data-lang="rust"><span style="color:#bfbab0cc;">#</span><span>[</span><span style="color:#ffb454;">bitfield</span><span>(bits </span><span style="color:#f29668;">=</span><span> 3)]
+</span><span style="color:#ff7733;">pub struct </span><span style="color:#59c2ff;">LEDState </span><span>{
+</span><span>    </span><span style="color:#ff7733;">pub </span><span>scroll_lock</span><span style="color:#bfbab0cc;">: </span><span style="color:#ff7733;">bool</span><span>,
+</span><span>    </span><span style="color:#ff7733;">pub </span><span>num_lock</span><span style="color:#bfbab0cc;">: </span><span style="color:#ff7733;">bool</span><span>,
+</span><span>    </span><span style="color:#ff7733;">pub </span><span>caps_lock</span><span style="color:#bfbab0cc;">: </span><span style="color:#ff7733;">bool</span><span>,
+</span><span>}
+</span></code></pre>
+<p>This needs to be sent to the keyboard hardware, meaning we need to instantiate it with the builder pattern:</p>
+<pre data-lang="rust" style="background-color:#0f1419;color:#bfbab0;" class="language-rust "><code class="language-rust" data-lang="rust"><span>LEDState</span><span style="color:#f29668;">::</span><span>new()
+</span><span>    </span><span style="color:#f29668;">.</span><span style="color:#f07178;">with_scroll_lock</span><span>(is_scroll_lock)
+</span><span>    </span><span style="color:#f29668;">.</span><span style="color:#f07178;">with_num_lock</span><span>(is_num_lock)
+</span><span>    </span><span style="color:#f29668;">.</span><span style="color:#f07178;">with_caps_lock</span><span>(is_caps_lock)</span><span style="color:#bfbab0cc;">,
+</span></code></pre>
+<p>It looks acceptable in this example, but imagine we had 12 fields. Also, if we accidentally leave out one of these <code>with</code>-calls, it would leave these fields zeroed out. In rust, we can't declare variables without initializing them, so why should this be possible, either?</p>
+<h3 id="type-centric-design-parse-don-t-validate"><a class="zola-anchor" href="#type-centric-design-parse-don-t-validate" aria-label="Anchor link for: type-centric-design-parse-don-t-validate">type-centric design - parse, don't validate</a></h3>
+<p>To talk a bit more about <code>from_bytes</code>, here we have an unfilled bitfield:</p>
+<pre data-lang="rust" style="background-color:#0f1419;color:#bfbab0;" class="language-rust "><code class="language-rust" data-lang="rust"><span style="color:#bfbab0cc;">#</span><span>[</span><span style="color:#ffb454;">bitfield</span><span>(bits </span><span style="color:#f29668;">=</span><span> 10)]
+</span><span style="color:#ff7733;">pub struct </span><span style="color:#59c2ff;">PackedData </span><span>{
+</span><span>    body</span><span style="color:#bfbab0cc;">:</span><span> B8,
+</span><span>    </span><span style="color:#bfbab0cc;">#</span><span>[</span><span style="color:#ffb454;">bits </span><span style="color:#f29668;">=</span><span> 2]
+</span><span>    status</span><span style="color:#bfbab0cc;">:</span><span> Status,
+</span><span>}
+</span><span style="color:#bfbab0cc;">#</span><span>[</span><span style="color:#ffb454;">derive</span><span>(BitfieldSpecifier)]
+</span><span style="color:#bfbab0cc;">#</span><span>[</span><span style="color:#ffb454;">bits </span><span style="color:#f29668;">=</span><span> 2]
+</span><span style="color:#ff7733;">pub enum </span><span style="color:#59c2ff;">Status </span><span>{
+</span><span>    Red </span><span style="color:#f29668;">= </span><span style="color:#f29718;">0b00</span><span style="color:#bfbab0cc;">,</span><span> Green </span><span style="color:#f29668;">= </span><span style="color:#f29718;">0b01</span><span style="color:#bfbab0cc;">,</span><span> Yellow </span><span style="color:#f29668;">= </span><span style="color:#f29718;">0b10</span><span style="color:#bfbab0cc;">,
+</span><span>}
+</span></code></pre>
+<p>First of all, by now you can probably guess how an enum in a bitfield works. Similar to our <code>bool</code> example, the enum value gets parsed. For enums, this is based on the declared value of the variant.</p>
+<p>In this case however, not every bit-combination is specified inside the enum - <code>0b11</code> is missing.
+There are some ways to handle this, but I will argue <code>modular-bitfield</code>'s way is wrong:</p>
+<pre data-lang="rust" style="background-color:#0f1419;color:#bfbab0;" class="language-rust "><code class="language-rust" data-lang="rust"><span style="color:#ff7733;">let mut</span><span> data </span><span style="color:#f29668;">= </span><span>PackedData</span><span style="color:#f29668;">::</span><span>from_bytes([</span><span style="color:#f29718;">0b0000_0000</span><span style="color:#bfbab0cc;">, </span><span style="color:#f29718;">0b1100_0000</span><span>])</span><span style="color:#bfbab0cc;">;
+</span><span style="font-style:italic;color:#5c6773;">//           The 2 status field bits are invalid -----^^
+</span><span style="color:#f07178;">assert_eq!</span><span>(data</span><span style="color:#f29668;">.</span><span style="color:#f07178;">status_or_err</span><span>()</span><span style="color:#bfbab0cc;">, </span><span style="font-style:italic;color:#39bae6;">Err</span><span>(
+</span><span>    InvalidBitPattern { invalid_bytes</span><span style="color:#bfbab0cc;">: </span><span style="color:#f29718;">0b11 </span><span>}
+</span><span>))</span><span style="color:#bfbab0cc;">;
+</span><span>data</span><span style="color:#f29668;">.</span><span style="color:#f07178;">set_status</span><span>(Status</span><span style="color:#f29668;">::</span><span>Green)</span><span style="color:#bfbab0cc;">;
+</span><span style="color:#f07178;">assert_eq!</span><span>(data</span><span style="color:#f29668;">.</span><span style="color:#f07178;">status_or_err</span><span>()</span><span style="color:#bfbab0cc;">, </span><span style="font-style:italic;color:#39bae6;">Ok</span><span>(Status</span><span style="color:#f29668;">::</span><span>Green))</span><span style="color:#bfbab0cc;">;
+</span></code></pre>
+<p>We can also call <code>status()</code>, which does this:</p>
+<pre data-lang="rust" style="background-color:#0f1419;color:#bfbab0;" class="language-rust "><code class="language-rust" data-lang="rust"><span style="font-style:italic;color:#39bae6;">self</span><span style="color:#f29668;">.</span><span style="color:#f07178;">status_or_err</span><span>()</span><span style="color:#f29668;">.</span><span style="color:#f07178;">expect</span><span>(</span><span style="color:#c2d94c;">&quot;value contains invalid bit pattern for field PackedData.status&quot;</span><span>)
+</span></code></pre>
+<p>So, <code>from_bytes</code> can easily take invalid arguments, which turns the type &quot;inside-out&quot;:</p>
+<p><code>u16</code> -&gt; <code>PackedData::from_bytes</code> -&gt; <code>PackedData::status_or_err()?</code></p>
+<p>This needs to check for <code>Err</code> on every single access, adds duplicate getters and setters with postfix <code>_or_err</code> and reinvents <code>From&lt;u16&gt;</code>/<code>TryFrom&lt;u16&gt;</code> as a kind of hybrid.</p>
+<p>The usual, type-centric flow is:</p>
+<p><code>u16</code> -&gt; <code>PackedData::try_from(u16)?</code> -&gt; <code>PackedData::status()</code></p>
+<p>This checks once on initialization of the type and needs to check nothing on access.
+Some more general info on this can be found in <a href="https://lexi-lambda.github.io/blog/2019/11/05/parse-don-t-validate/">Parse, don't validate</a>.</p>
+<h3 id="how-to-split-up-big-procedural-macros"><a class="zola-anchor" href="#how-to-split-up-big-procedural-macros" aria-label="Anchor link for: how-to-split-up-big-procedural-macros">how to split up big procedural macros</a></h3>
+<p>Another interesting problem is the tendency for crates like this to evolve into a kind of &quot;god-macro&quot;. They tend to handle all kinds of special usecases and even implement derives (e.g. <code>impl Debug</code>) inside the one macro (e.g. <code>#[bitfield]</code>).
+That's powerful, but not scalable.</p>
+<p>It would be much nicer if others could access the bit-information in their own attribute or derive macros.
+This can be solved by providing a kind of scope for any bit-based derive macros, as we will see later.</p>
+<h3 id="implementation-peculiarities"><a class="zola-anchor" href="#implementation-peculiarities" aria-label="Anchor link for: implementation-peculiarities">implementation peculiarities</a></h3>
+<p>If we talk about the bitfield implementation itself, it's interesting that their underlying type is a byte array. It doesn't matter all that much <a href="https://github.com/hecatia-elegua/bilge#benchmarks-performance-asm-line-count">on any benchmark</a>, since the computations are done at compile time. The build-time itself also doesn't suffer.
+It only matters for ergonomics in some cases.</p>
+<p>I assume it's an array because <code>modular-bitfield</code> was based on <a href="https://github.com/dtolnay/proc-macro-workshop/blob/a2a05d0aafcdf9fe13f1ca0bbe5f74418401b19f/README.md?plain=1#L223">this dtolnay workshop project</a>. This could be useful for bitfields larger than u128, but if our bitfields get larger than u128, we can split them into multiple bitfields of a primitive size (like u64) and put those in a parent struct which is not a bitfield.</p>
+<aside>
+<p>Edit/Sidenote: Another reason why an array can be useful is if your bitfield needs to be <code>align(1)</code>, although I'm wondering if <code>#[repr(align(1))]</code> or <code>#[repr(packed)]</code> would be enough here?</p>
+</aside>
+<p>Still, <code>modular-bitfield</code> is pretty good and worked nicely for getting PS/2 up and running.</p>
+<h2 id="how-bilge-came-to-be"><a class="zola-anchor" href="#how-bilge-came-to-be" aria-label="Anchor link for: how-bilge-came-to-be">How bilge came to be</a></h2>
+<p>Since I started prototyping on USB, PCI and ARM driver implementations, I quickly realized there's some need to modify what <code>modular-bitfield</code> does. Due to the above mentioned problems and because of some more register-related requirements, I started looking for alternatives.</p>
+<p>So I went through most bitfield crates on crates.io:</p>
+<ul>
+<li>Most bitfield libs just initialize with raw values, or something similar to <code>from_bytes</code> (see above)</li>
+<li>Many bitfield libs have a terrible frontend (i.e. try to look like C bitfields and so on)</li>
+<li>bitflags fit better into a struct with bools and enums as well, in my opinion</li>
+</ul>
+<p>Then I found <a href="https://crates.io/crates/bitbybit">danlehmann's <code>bitbybit</code></a>, which has a similar frontend to <code>modular-bitfield</code> and is actually maintained and simple.
+They also use <a href="https://github.com/danlehmann/bitfield/issues/4"><code>arbitrary bitwidth integers</code></a>, which I deeply wish to be integrated into rust.</p>
+<p>After hacking around in <code>bitbybit</code> for a while, I noticed parts of it would need to work differently, so I began removing some features and later concluded it would be best to write my own while learning some more about proc macros.</p>
+<p>I set out to build <code>bilge</code>, a crate to handle bit-sized types at least equal to or better than <code>modular-bitfield</code> and <code>bitbybit</code>.
+Tell me where I can do better, I will try.</p>
+<p>I wanted a design fitting rust:</p>
+<ul>
+<li><strong>safe</strong>
+<ul>
+<li>types model as much of the functionality as possible</li>
+<li>don't allow false/unsafe usage (unless specified)</li>
+</ul>
+</li>
+<li><strong>fast</strong>
+<ul>
+<li>like handwritten bit fiddling code</li>
+</ul>
+</li>
+<li><strong>simple to complex</strong>
+<ul>
+<li>obvious and readable basic frontend, like normal structs</li>
+<li>only minimally and gradually introduce advanced concepts</li>
+</ul>
+</li>
+</ul>
+<h2 id="building-bilge"><a class="zola-anchor" href="#building-bilge" aria-label="Anchor link for: building-bilge">Building bilge</a></h2>
+<p>First, I noticed the byte-oriented <code>size_of!</code>, <code>offset_of!</code>, <code>repr</code> and <a href="https://github.com/illicitonion/num_enum#attempting-to-turn-a-primitive-into-an-enum-with-try_from"><code>num_enum::TryFromPrimitive</code></a> would kinda need to have a bit-oriented version.
+Then I had the basic idea to just provide a bitsize on items, which could later be used by other proc macros.
+So I scratched the usual &quot;<code>#[bitfield]</code>&quot; idea in favor of <code>#[bitsize(num)]</code> and actual derive macros.</p>
+<h3 id="attribute-macro-as-a-scope"><a class="zola-anchor" href="#attribute-macro-as-a-scope" aria-label="Anchor link for: attribute-macro-as-a-scope">attribute macro as a scope</a></h3>
+<p>This means <code>#[bitsize]</code> basically acts as a scope for macros underneath it, providing whatever is necessary for them.
+That way, <code>#[bitsize]</code> would take on all the basic validity checks and special bitfield handling, while <code>#[derive(FromBits)]</code> can do the actual parsing of raw values (e.g. registers).
+It also opens the way for others to define their own derive macros based on this.</p>
+<pre data-lang="rust" style="background-color:#0f1419;color:#bfbab0;" class="language-rust "><code class="language-rust" data-lang="rust"><span style="color:#bfbab0cc;">#</span><span>[</span><span style="color:#ffb454;">bitsize</span><span>(6)]
+</span><span style="color:#bfbab0cc;">#</span><span>[</span><span style="color:#ffb454;">derive</span><span>(FromBits)]
+</span><span style="color:#ff7733;">struct </span><span style="color:#59c2ff;">ParentStruct </span><span>{
+</span><span>    field1</span><span style="color:#bfbab0cc;">:</span><span> ChildStruct,
+</span><span>    field2</span><span style="color:#bfbab0cc;">:</span><span> ChildStruct,
+</span><span>    field3</span><span style="color:#bfbab0cc;">:</span><span> ChildEnum,
+</span><span>}
+</span></code></pre>
+<p>Now the main question was how to pass the bitsize to the other macros, as macros are evaluated outside-in and then deleted.
+Along the way I learned that you can't generate &quot;inert&quot; attributes, only <a href="https://doc.rust-lang.org/reference/procedural-macros.html#derive-macro-helper-attributes">derive macro helper attributes</a>.</p>
+<p>So at that point, the way to make this work was by letting <code>#[bitsize(num)]</code> add <code>#[bitsize_internal(num)]</code> to the item. It stays on the item even after macro expansion:</p>
+<pre data-lang="rust" style="background-color:#0f1419;color:#bfbab0;" class="language-rust "><code class="language-rust" data-lang="rust"><span style="color:#bfbab0cc;">#</span><span>[</span><span style="color:#ffb454;">bitsize_internal</span><span>(6u8)]
+</span><span style="color:#ff7733;">struct </span><span style="color:#59c2ff;">ParentStruct </span><span>{
+</span><span>    value</span><span style="color:#bfbab0cc;">:</span><span> u6,
+</span><span>}
+</span></code></pre>
+<p>You may be confused why I didn't just parse the field value.
+Of course not because I didn't notice, but because it will be useful to have for enums 🙂</p>
+<h3 id="deriving-tryfrom-and-from-for-bit-sized-enums"><a class="zola-anchor" href="#deriving-tryfrom-and-from-for-bit-sized-enums" aria-label="Anchor link for: deriving-tryfrom-and-from-for-bit-sized-enums">deriving <code>TryFrom</code> and <code>From</code> for bit-sized enums</a></h3>
+<p>I then started the <code>#[derive(TryFromBits)]</code> implementation for enums, to allow enums which don't specify all of their bits. This meant I had to parse the <code>#[bitsize_internal]</code> helper attribute and generate this:</p>
+<pre data-lang="rust" style="background-color:#0f1419;color:#bfbab0;" class="language-rust "><code class="language-rust" data-lang="rust"><span style="color:#ff7733;">impl </span><span style="color:#f29668;">::</span><span>core</span><span style="color:#f29668;">::</span><span>convert</span><span style="color:#f29668;">::</span><span>TryFrom&lt;u2&gt; </span><span style="color:#ff7733;">for </span><span style="color:#59c2ff;">IncompleteEnum </span><span>{
+</span><span>    </span><span style="color:#ff7733;">type </span><span style="color:#59c2ff;">Error </span><span style="color:#f29668;">=</span><span> u2</span><span style="color:#bfbab0cc;">;
+</span><span>    </span><span style="color:#ff7733;">fn </span><span style="color:#ffb454;">try_from</span><span>(</span><span style="color:#f29718;">number</span><span style="color:#bfbab0cc;">:</span><span> u2) </span><span style="color:#bfbab0cc;">-&gt; </span><span style="color:#f29668;">::</span><span>core</span><span style="color:#f29668;">::</span><span>result</span><span style="color:#f29668;">::</span><span style="font-style:italic;color:#39bae6;">Result</span><span>&lt;</span><span style="color:#ff7733;">Self</span><span>, </span><span style="color:#ff7733;">Self</span><span style="color:#f29668;">::</span><span>Error&gt; {
+</span><span>        </span><span style="color:#ff7733;">match</span><span> number</span><span style="color:#f29668;">.</span><span style="color:#f07178;">value</span><span>() {
+</span><span>            </span><span style="color:#f29718;">0 </span><span style="color:#f29668;">=&gt; </span><span style="font-style:italic;color:#39bae6;">Ok</span><span>(</span><span style="color:#ff7733;">Self</span><span style="color:#f29668;">::</span><span>A)</span><span style="color:#bfbab0cc;">,
+</span><span>            </span><span style="color:#f29718;">1 </span><span style="color:#f29668;">=&gt; </span><span style="font-style:italic;color:#39bae6;">Ok</span><span>(</span><span style="color:#ff7733;">Self</span><span style="color:#f29668;">::</span><span>B)</span><span style="color:#bfbab0cc;">,
+</span><span>            </span><span style="color:#f29718;">2 </span><span style="color:#f29668;">=&gt; </span><span style="font-style:italic;color:#39bae6;">Ok</span><span>(</span><span style="color:#ff7733;">Self</span><span style="color:#f29668;">::</span><span>C)</span><span style="color:#bfbab0cc;">,
+</span><span>            i </span><span style="color:#f29668;">=&gt; </span><span style="font-style:italic;color:#39bae6;">Err</span><span>(u2</span><span style="color:#f29668;">::</span><span>new(i))</span><span style="color:#bfbab0cc;">,
+</span><span>        }
+</span><span>    }
+</span><span>}
+</span></code></pre>
+<p>The next, easy step was duplicating the code for <code>#[derive(FromBits)]</code> and adjusting it to fit its requirements. That means it needs to validate that all bit-patterns are used (one enum variant is specified for every bit-pattern).</p>
+<h3 id="deriving-from-for-bit-sized-structs"><a class="zola-anchor" href="#deriving-from-for-bit-sized-structs" aria-label="Anchor link for: deriving-from-for-bit-sized-structs">deriving <code>From</code> for bit-sized structs</a></h3>
+<p>Then structs needed to be implemented, so I started to get some use out of my experiments with Daniel's <code>bitbybit</code> crate.
+A getter or setter acts on one field and needs to know the field's bit-offset and mask. This is accomplished by specifying <code>BITS</code> and <code>MAX</code> for every bit-sized type.</p>
+<p>Later on, this gets handled differently, but just to visualize it:</p>
+<pre data-lang="rust" style="background-color:#0f1419;color:#bfbab0;" class="language-rust "><code class="language-rust" data-lang="rust"><span style="color:#ff7733;">impl </span><span style="color:#59c2ff;">ParentStruct </span><span>{
+</span><span>    </span><span style="color:#ff7733;">fn </span><span style="color:#ffb454;">field1</span><span>(</span><span style="color:#f29668;">&amp;</span><span style="color:#f29718;">self</span><span>) </span><span style="color:#bfbab0cc;">-&gt;</span><span> ChildStruct {
+</span><span>        ChildStruct</span><span style="color:#f29668;">::</span><span>new((</span><span style="font-style:italic;color:#39bae6;">self</span><span style="color:#f29668;">.</span><span>value </span><span style="color:#f29668;">&gt;&gt; </span><span style="color:#f29718;">0</span><span>) </span><span style="color:#f29668;">&amp; </span><span>ChildStruct</span><span style="color:#f29668;">::</span><span style="color:#f29718;">MAX</span><span>)
+</span><span>    }
+</span><span>    </span><span style="color:#ff7733;">fn </span><span style="color:#ffb454;">field2</span><span>(</span><span style="color:#f29668;">&amp;</span><span style="color:#f29718;">self</span><span>) </span><span style="color:#bfbab0cc;">-&gt;</span><span> ChildStruct {
+</span><span>        ChildStruct</span><span style="color:#f29668;">::</span><span>new((</span><span style="font-style:italic;color:#39bae6;">self</span><span style="color:#f29668;">.</span><span>value </span><span style="color:#f29668;">&gt;&gt; </span><span>(</span><span style="color:#f29718;">0 </span><span style="color:#f29668;">+ </span><span>ChildStruct</span><span style="color:#f29668;">::</span><span style="color:#f29718;">BITS</span><span>)) </span><span style="color:#f29668;">&amp; </span><span>ChildStruct</span><span style="color:#f29668;">::</span><span style="color:#f29718;">MAX</span><span>)
+</span><span>    }
+</span><span>}
+</span><span>
+</span><span style="color:#ff7733;">impl </span><span style="color:#59c2ff;">ChildStruct </span><span>{
+</span><span>    </span><span style="color:#ff7733;">const </span><span style="color:#f29718;">BITS</span><span style="color:#bfbab0cc;">: </span><span style="color:#ff7733;">usize </span><span style="color:#f29668;">= </span><span style="color:#f29718;">2</span><span style="color:#bfbab0cc;">;
+</span><span>    </span><span style="color:#ff7733;">const </span><span style="color:#f29718;">MAX</span><span style="color:#bfbab0cc;">:</span><span> u2 </span><span style="color:#f29668;">= </span><span>u2</span><span style="color:#f29668;">::</span><span style="color:#f29718;">MAX</span><span style="color:#bfbab0cc;">;
+</span><span>}
+</span></code></pre>
+<p>Next up, structs should accept nested enums deriving <code>TryFromBits</code>. The struct itself would then have to be <code>TryFromBits</code>, obviously, since not all of its bit-combinations are declared.
+So, let's validate that <code>FromBits</code> can't be used if any sub-structs/enums use <code>TryFromBits</code>.</p>
+<p>Since we're in macro land, this can't be checked by somehow querying the type system. Instead, after stumbling around for a bit, I decided to add a <code>const FILLED</code>, which is just a flag for telling whether or not the item is <code>From</code>-compatible.</p>
+<p>For enums, <code>FILLED</code> just checks if all bit combinations are filled, and for structs it iterates all fields and then adds <code>::FILLED</code> to those and joins them using <code>&amp;&amp;</code>.
+It leaves out all fields which are not a <code>uN</code>, since they're always filled (by abusing the fact that <code>uN</code> types start with a lowercase <code>u</code> 🙂).</p>
+<p>Which ends up looking like this:</p>
+<pre data-lang="rust" style="background-color:#0f1419;color:#bfbab0;" class="language-rust "><code class="language-rust" data-lang="rust"><span style="color:#ff7733;">impl </span><span style="color:#59c2ff;">ParentStruct </span><span>{
+</span><span>    </span><span style="color:#ff7733;">const </span><span style="color:#f29718;">FILLED</span><span style="color:#bfbab0cc;">: </span><span style="color:#ff7733;">bool </span><span style="color:#f29668;">= </span><span>ChildStruct</span><span style="color:#f29668;">::</span><span style="color:#f29718;">FILLED </span><span style="color:#f29668;">&amp;&amp; </span><span>ChildEnum</span><span style="color:#f29668;">::</span><span style="color:#f29718;">FILLED</span><span style="color:#bfbab0cc;">;
+</span><span>}
+</span></code></pre>
+<p>And then, in <code>#[derive(FromBits)]</code>, we generate this:</p>
+<pre data-lang="rust" style="background-color:#0f1419;color:#bfbab0;" class="language-rust "><code class="language-rust" data-lang="rust"><span style="color:#ff7733;">const </span><span style="color:#f29668;">_</span><span style="color:#bfbab0cc;">: </span><span>() </span><span style="color:#f29668;">= </span><span style="color:#f07178;">assert!</span><span>(</span><span style="color:#f29668;">#</span><span>type_name</span><span style="color:#f29668;">::</span><span style="color:#f29718;">FILLED</span><span style="color:#bfbab0cc;">, </span><span style="color:#c2d94c;">&quot;implementing FromBits on bitfields with unfilled bits is forbidden&quot;</span><span>)</span><span style="color:#bfbab0cc;">;
+</span></code></pre>
+<p>Wait, where is <code>TryFromBits</code> on structs!?</p>
+<h3 id="deriving-tryfrom-for-bit-sized-structs"><a class="zola-anchor" href="#deriving-tryfrom-for-bit-sized-structs" aria-label="Anchor link for: deriving-tryfrom-for-bit-sized-structs">deriving <code>TryFrom</code> for bit-sized structs</a></h3>
+<p>Well, that's the most interesting part of this.
+Until now, I basically did this for structs:</p>
+<pre data-lang="rust" style="background-color:#0f1419;color:#bfbab0;" class="language-rust "><code class="language-rust" data-lang="rust"><span style="color:#ff7733;">let</span><span> is_ok </span><span style="color:#f29668;">= </span><span style="color:#f29718;">true</span><span style="color:#bfbab0cc;">;
+</span><span>
+</span><span style="color:#ff7733;">if</span><span> is_ok {
+</span><span>    </span><span style="font-style:italic;color:#39bae6;">Ok</span><span>(</span><span style="color:#ff7733;">Self </span><span>{ value })
+</span><span>} </span><span style="color:#ff7733;">else </span><span>{
+</span><span>    </span><span style="font-style:italic;color:#39bae6;">Err</span><span>(value)
+</span><span>}
+</span></code></pre>
+<p>It was time to finally compute <code>is_ok</code>.
+To do so, at least field offsets and types need to be sent across the macro boundary.</p>
+<p>The choice of using an <em>inert attribute</em> had me going astray for a bit:</p>
+<pre data-lang="rust" style="background-color:#0f1419;color:#bfbab0;" class="language-rust "><code class="language-rust" data-lang="rust"><span style="color:#bfbab0cc;">#</span><span>[</span><span style="color:#ffb454;">bitsize_internal</span><span>(6u8</span><span style="color:#bfbab0cc;">,</span><span> 0</span><span style="color:#bfbab0cc;">,</span><span> ChildStruct</span><span style="color:#bfbab0cc;">,</span><span> 0+ChildStruct::BITS</span><span style="color:#bfbab0cc;">,</span><span> ChildStruct</span><span style="color:#bfbab0cc;">,</span><span> 0+ChildStruct::BITS+ChildStruct::BITS</span><span style="color:#bfbab0cc;">,</span><span> ChildEnum)]
+</span><span style="color:#ff7733;">struct </span><span style="color:#59c2ff;">ParentStruct </span><span>{
+</span><span>    value</span><span style="color:#bfbab0cc;">:</span><span> u6,
+</span><span>}
+</span></code></pre>
+<p>This isn't necessary and I removed this later, but I still want to share this silly piece of code. Just skip the below indented part (<code>&lt;aside&gt;</code>) if uninterested.</p>
+<aside>
+<p>I just kinda threw field offsets and types into the internal attribute with some commas.
+Maybe I shouldn't have done that. This is the parsing code:</p>
+<pre data-lang="rust" style="background-color:#0f1419;color:#bfbab0;" class="language-rust "><code class="language-rust" data-lang="rust"><span style="color:#bfbab0cc;">#</span><span>[</span><span style="color:#ffb454;">derive</span><span>(Debug)]
+</span><span style="color:#ff7733;">struct </span><span style="color:#59c2ff;">Attributes </span><span>{
+</span><span>    size</span><span style="color:#bfbab0cc;">:</span><span> LitInt,
+</span><span>    others</span><span style="color:#bfbab0cc;">:</span><span> TokenStream,
+</span><span>}
+</span><span style="color:#ff7733;">impl </span><span>Parse </span><span style="color:#ff7733;">for </span><span style="color:#59c2ff;">Attributes </span><span>{
+</span><span>    </span><span style="color:#ff7733;">fn </span><span style="color:#ffb454;">parse</span><span>(</span><span style="color:#f29718;">input</span><span style="color:#bfbab0cc;">:</span><span> ParseStream) </span><span style="color:#bfbab0cc;">-&gt; </span><span>syn</span><span style="color:#f29668;">::</span><span style="font-style:italic;color:#39bae6;">Result</span><span>&lt;</span><span style="color:#ff7733;">Self</span><span>&gt; {
+</span><span>        </span><span style="font-style:italic;color:#39bae6;">Ok</span><span>(Attributes {
+</span><span>            size</span><span style="color:#bfbab0cc;">:</span><span> input</span><span style="color:#f29668;">.</span><span style="color:#f07178;">parse</span><span>()</span><span style="color:#f29668;">?</span><span style="color:#bfbab0cc;">,
+</span><span>            others</span><span style="color:#bfbab0cc;">:</span><span> input</span><span style="color:#f29668;">.</span><span style="color:#f07178;">parse</span><span>()</span><span style="color:#f29668;">?</span><span style="color:#bfbab0cc;">,
+</span><span>        })
+</span><span>    }
+</span><span>}
+</span><span style="color:#bfbab0cc;">#</span><span>[</span><span style="color:#ffb454;">derive</span><span>(Debug)]
+</span><span style="color:#ff7733;">struct </span><span style="color:#59c2ff;">Others </span><span>{
+</span><span>    _comma_token</span><span style="color:#bfbab0cc;">:</span><span> Token![,],
+</span><span>    field_offset_and_type</span><span style="color:#bfbab0cc;">: </span><span>Punctuated&lt;(Expr, Token![,], Ident), Token</span><span style="color:#ff3333;">!</span><span>[,]&gt;,
+</span><span>}
+</span><span style="color:#ff7733;">impl </span><span>Parse </span><span style="color:#ff7733;">for </span><span style="color:#59c2ff;">Others </span><span>{
+</span><span>    </span><span style="color:#ff7733;">fn </span><span style="color:#ffb454;">parse</span><span>(</span><span style="color:#f29718;">input</span><span style="color:#bfbab0cc;">:</span><span> ParseStream) </span><span style="color:#bfbab0cc;">-&gt; </span><span>syn</span><span style="color:#f29668;">::</span><span style="font-style:italic;color:#39bae6;">Result</span><span>&lt;</span><span style="color:#ff7733;">Self</span><span>&gt; {
+</span><span>        </span><span style="font-style:italic;color:#39bae6;">Ok</span><span>(Others {
+</span><span>            _comma_token</span><span style="color:#bfbab0cc;">:</span><span> input</span><span style="color:#f29668;">.</span><span style="color:#f07178;">parse</span><span>()</span><span style="color:#f29668;">?</span><span style="color:#bfbab0cc;">,
+</span><span>            field_offset_and_type</span><span style="color:#bfbab0cc;">:</span><span> input</span><span style="color:#f29668;">.</span><span style="color:#f07178;">parse_terminated</span><span>(parse_expr_ident)</span><span style="color:#f29668;">?</span><span style="color:#bfbab0cc;">,
+</span><span>        })
+</span><span>    }
+</span><span>}
+</span><span style="color:#ff7733;">fn </span><span style="color:#ffb454;">parse_expr_ident</span><span>(</span><span style="color:#f29718;">input</span><span style="color:#bfbab0cc;">:</span><span> ParseStream) </span><span style="color:#bfbab0cc;">-&gt; </span><span>syn</span><span style="color:#f29668;">::</span><span style="font-style:italic;color:#39bae6;">Result</span><span>&lt;(Expr, Token![,], Ident)&gt; {
+</span><span>    </span><span style="font-style:italic;color:#39bae6;">Ok</span><span>((input</span><span style="color:#f29668;">.</span><span style="color:#f07178;">parse</span><span>()</span><span style="color:#f29668;">?</span><span style="color:#bfbab0cc;">,</span><span> input</span><span style="color:#f29668;">.</span><span style="color:#f07178;">parse</span><span>()</span><span style="color:#f29668;">?</span><span style="color:#bfbab0cc;">,</span><span> input</span><span style="color:#f29668;">.</span><span style="color:#f07178;">parse</span><span>()</span><span style="color:#f29668;">?</span><span>))
+</span><span>}
+</span><span style="color:#ff7733;">let</span><span> attributes </span><span style="color:#f29668;">= </span><span>syn</span><span style="color:#f29668;">::</span><span>parse2</span><span style="color:#f29668;">::</span><span>&lt;Attributes&gt;(internal_bitsize_braced</span><span style="color:#f29668;">.</span><span style="color:#f07178;">stream</span><span>())</span><span style="color:#f29668;">.</span><span style="color:#f07178;">expect</span><span>(</span><span style="color:#c2d94c;">&quot;wrong&quot;</span><span>)</span><span style="color:#bfbab0cc;">;
+</span><span style="color:#ff7733;">let</span><span> size </span><span style="color:#f29668;">=</span><span> attributes</span><span style="color:#f29668;">.</span><span>size</span><span style="color:#bfbab0cc;">;
+</span><span style="color:#ff7733;">let</span><span> fields_info</span><span style="color:#bfbab0cc;">: </span><span style="font-style:italic;color:#39bae6;">Vec</span><span>&lt;(Expr, Ident)&gt; </span><span style="color:#f29668;">= </span><span style="color:#ff7733;">if </span><span style="color:#f29668;">!</span><span>attributes</span><span style="color:#f29668;">.</span><span>others</span><span style="color:#f29668;">.</span><span style="color:#f07178;">is_empty</span><span>() {
+</span><span>    </span><span style="color:#ff7733;">let</span><span> others </span><span style="color:#f29668;">= </span><span>syn</span><span style="color:#f29668;">::</span><span>parse2</span><span style="color:#f29668;">::</span><span>&lt;Others&gt;(attributes</span><span style="color:#f29668;">.</span><span>others)</span><span style="color:#f29668;">.</span><span style="color:#f07178;">expect</span><span>(</span><span style="color:#c2d94c;">&quot;wrong&quot;</span><span>)</span><span style="color:#bfbab0cc;">;
+</span><span>    others</span><span style="color:#f29668;">.</span><span>field_offset_and_type</span><span style="color:#f29668;">.</span><span style="color:#f07178;">iter</span><span>()</span><span style="color:#f29668;">.</span><span style="color:#f07178;">map</span><span>(|</span><span style="color:#f29718;">field</span><span>| (field</span><span style="color:#f29668;">.</span><span style="color:#f29718;">0.</span><span style="color:#f07178;">clone</span><span>()</span><span style="color:#bfbab0cc;">,</span><span> field</span><span style="color:#f29668;">.</span><span style="color:#f29718;">2.</span><span style="color:#f07178;">clone</span><span>()))</span><span style="color:#f29668;">.</span><span style="color:#f07178;">collect</span><span>()
+</span><span>} </span><span style="color:#ff7733;">else </span><span>{
+</span><span>    </span><span style="color:#f07178;">vec!</span><span>[]
+</span><span>}</span><span style="color:#bfbab0cc;">;
+</span></code></pre>
+<p>YES, that's some succinct parsing code! (Again, this is old code, don't worry.)</p>
+<p>I couldn't have known that syn parsing is so intricate. If I had chosen another way to encode this, it would have been easier.
+Forgive me for I have synned (Thanks <a href="https://github.com/NathanRoyer">Nathan</a>, I will keep that joke).</p>
+</aside>
+<p>And now that all the necessary field information is available, we just generate our bit-shifting and masking for each field:</p>
+<pre data-lang="rust" style="background-color:#0f1419;color:#bfbab0;" class="language-rust "><code class="language-rust" data-lang="rust"><span style="color:#ff7733;">let</span><span> field_value </span><span style="color:#f29668;">= </span><span style="color:#f07178;">quote! </span><span>{
+</span><span>    </span><span style="color:#f29668;">#</span><span>field_type</span><span style="color:#f29668;">::</span><span>new(
+</span><span>        (struct_value </span><span style="color:#f29668;">&gt;&gt; </span><span>(</span><span style="color:#f29668;">#</span><span>field_offset)) </span><span style="color:#f29668;">&amp; #</span><span>field_type</span><span style="color:#f29668;">::</span><span style="color:#f29718;">MAX
+</span><span>    )
+</span><span>}</span><span style="color:#bfbab0cc;">;
+</span><span style="color:#ff7733;">let</span><span> is_ok </span><span style="color:#f29668;">= </span><span style="color:#f07178;">quote! </span><span>{
+</span><span>    </span><span style="font-style:italic;color:#5c6773;">// has try_from impl
+</span><span>    </span><span style="color:#ff7733;">if </span><span style="color:#f29668;">!#</span><span>field_type</span><span style="color:#f29668;">::</span><span style="color:#f29718;">FILLED </span><span>{ 
+</span><span>        </span><span style="color:#f29668;">#</span><span>field_type</span><span style="color:#f29668;">::</span><span>try_from(</span><span style="color:#f29668;">#</span><span>field_value)</span><span style="color:#f29668;">.</span><span style="color:#f07178;">is_ok</span><span>()
+</span><span>    } </span><span style="color:#ff7733;">else </span><span>{
+</span><span>        </span><span style="color:#f29718;">true
+</span><span>    }
+</span><span>}
+</span></code></pre>
+<p>And put it into the <code>impl TryFrom</code>:</p>
+<pre data-lang="rust" style="background-color:#0f1419;color:#bfbab0;" class="language-rust "><code class="language-rust" data-lang="rust"><span style="color:#f07178;">quote! </span><span>{
+</span><span>    </span><span style="color:#ff7733;">let</span><span> is_ok </span><span style="color:#f29668;">= </span><span>{</span><span style="color:#f29668;">#</span><span>is_ok}</span><span style="color:#bfbab0cc;">;
+</span><span>
+</span><span>    </span><span style="color:#ff7733;">if</span><span> is_ok {
+</span><span>        </span><span style="font-style:italic;color:#39bae6;">Ok</span><span>(</span><span style="color:#ff7733;">Self </span><span>{ value })
+</span><span>    } </span><span style="color:#ff7733;">else </span><span>{
+</span><span>        </span><span style="font-style:italic;color:#39bae6;">Err</span><span>(value)
+</span><span>    }
+</span><span>}
+</span></code></pre>
+<p>And that's it, right?
+Let's run this.</p>
+<div style="text-decoration: underline 0.1em wavy #c7ab0e; text-decoration-skip-ink: none">
+<pre style="background-color:#0f1419;color:#bfbab0;"><code><span>ParentStruct::try_from(u6::new(0b110000));
+</span></code></pre>
+</div>
+<p>Huh?</p>
+<pre data-lang="sh" style="background-color:#0f1419;color:#bfbab0;" class="language-sh "><code class="language-sh" data-lang="sh"><span style="color:#ffb454;">thread </span><span style="color:#c2d94c;">&#39;main&#39;</span><span> panicked at </span><span style="color:#c2d94c;">&#39;called `Result::unwrap()` on an `Err` value: 3&#39;
+</span></code></pre>
+<p>Let's run <a href="https://github.com/dtolnay/cargo-expand#cargo-expand"><code>cargo expand</code></a>:</p>
+<pre data-lang="rust" style="background-color:#0f1419;color:#bfbab0;" class="language-rust "><code class="language-rust" data-lang="rust"><span style="font-style:italic;color:#5c6773;">/* ... */
+</span><span style="color:#ff7733;">let</span><span> is_ok </span><span style="color:#f29668;">= </span><span style="color:#ff7733;">if </span><span style="color:#f29668;">!</span><span>ChildEnum</span><span style="color:#f29668;">::</span><span style="color:#f29718;">FILLED </span><span>{
+</span><span>    ChildEnum</span><span style="color:#f29668;">::</span><span>try_from(ChildEnum</span><span style="color:#f29668;">::</span><span>new(
+</span><span>        (value </span><span style="color:#f29668;">&gt;&gt; </span><span>(</span><span style="color:#f29718;">0</span><span>)) </span><span style="color:#f29668;">&amp; </span><span>ChildEnum</span><span style="color:#f29668;">::</span><span style="color:#f29718;">MAX
+</span><span>    ))</span><span style="color:#f29668;">.</span><span style="color:#f07178;">is_ok</span><span>()
+</span><span>} </span><span style="color:#ff7733;">else </span><span>{
+</span><span>    </span><span style="color:#f29718;">true
+</span><span>}
+</span><span style="font-style:italic;color:#5c6773;">/* ... */
+</span></code></pre>
+<p>Ah yes, <code>ChildEnum::try_from(ChildEnum)</code>.</p>
+<p>What I actually want to put there is not <code>#field_type</code>, but <code>#field_arbitrary_int_type</code>, to produce:</p>
+<pre data-lang="rust" style="background-color:#0f1419;color:#bfbab0;" class="language-rust "><code class="language-rust" data-lang="rust"><span>ChildEnum</span><span style="color:#f29668;">::</span><span>try_from(u2</span><span style="color:#f29668;">::</span><span>new(value))</span><span style="color:#f29668;">.</span><span style="color:#f07178;">is_ok</span><span>()
+</span></code></pre>
+<p>It would be pretty nice if one had access to the field's <code>arbitrary-int</code> type in general, so let's add a trait to all bit-sized items!</p>
+<p>Let's add it like this for now, just to check if it works:</p>
+<pre data-lang="rust" style="background-color:#0f1419;color:#bfbab0;" class="language-rust "><code class="language-rust" data-lang="rust"><span style="color:#ff7733;">pub trait </span><span style="color:#59c2ff;">Bitsized </span><span>{
+</span><span>    </span><span style="color:#ff7733;">type </span><span style="color:#59c2ff;">ArbitraryInt</span><span style="color:#bfbab0cc;">;
+</span><span>}
+</span></code></pre>
+<p>And in macro code:</p>
+<pre data-lang="rust" style="background-color:#0f1419;color:#bfbab0;" class="language-rust "><code class="language-rust" data-lang="rust"><span style="color:#ff7733;">impl </span><span>Bitsized </span><span style="color:#ff7733;">for</span><span> #</span><span style="color:#59c2ff;">name </span><span>{
+</span><span>    </span><span style="color:#ff7733;">type </span><span style="color:#59c2ff;">ArbitraryInt </span><span style="color:#f29668;">= #</span><span>arb_int</span><span style="color:#bfbab0cc;">;
+</span><span>}
+</span></code></pre>
+<p>And in the <code>impl TryFrom</code>:</p>
+<pre data-lang="rust" style="background-color:#0f1419;color:#bfbab0;" class="language-rust "><code class="language-rust" data-lang="rust"><span style="color:#ff7733;">let</span><span> field_arbitrary_int_type </span><span style="color:#f29668;">= </span><span style="color:#f07178;">quote!</span><span>(</span><span style="color:#f29668;">&lt;#</span><span>field_type </span><span style="color:#f29668;">as</span><span> Bitsized</span><span style="color:#f29668;">&gt;::</span><span>ArbitraryInt)</span><span style="color:#bfbab0cc;">;
+</span><span style="color:#ff7733;">let</span><span> field_value </span><span style="color:#f29668;">= </span><span style="color:#f07178;">quote! </span><span>{
+</span><span>    </span><span style="color:#f29668;">#</span><span>field_arbitrary_int_type</span><span style="color:#f29668;">::</span><span>new(
+</span><span>        (struct_value </span><span style="color:#f29668;">&gt;&gt; </span><span>(</span><span style="color:#f29668;">#</span><span>field_offset)) </span><span style="color:#f29668;">&amp; #</span><span>field_type</span><span style="color:#f29668;">::</span><span style="color:#f29718;">MAX
+</span><span>    )
+</span><span>}</span><span style="color:#bfbab0cc;">;
+</span></code></pre>
+<p>Now <code>ParentStruct::try_from</code> works!</p>
+<h3 id="deriving-debug-for-bit-sized-structs-while-fixing-the-mess-i-made"><a class="zola-anchor" href="#deriving-debug-for-bit-sized-structs-while-fixing-the-mess-i-made" aria-label="Anchor link for: deriving-debug-for-bit-sized-structs-while-fixing-the-mess-i-made">deriving <code>Debug</code> for bit-sized structs, while fixing the mess I made</a></h3>
+<p>Since we want nice debug output, we need to <code>#[derive(Debug)]</code>.
+Say we have:</p>
+<pre data-lang="rust" style="background-color:#0f1419;color:#bfbab0;" class="language-rust "><code class="language-rust" data-lang="rust"><span style="color:#bfbab0cc;">#</span><span>[</span><span style="color:#ffb454;">bitsize</span><span>(2)]
+</span><span style="color:#bfbab0cc;">#</span><span>[</span><span style="color:#ffb454;">derive</span><span>(FromBits</span><span style="color:#bfbab0cc;">,</span><span> Debug)]
+</span><span style="color:#ff7733;">struct </span><span style="color:#59c2ff;">Thing </span><span>{
+</span><span>    a</span><span style="color:#bfbab0cc;">: </span><span style="color:#ff7733;">bool</span><span>,
+</span><span>    b</span><span style="color:#bfbab0cc;">: </span><span style="color:#ff7733;">bool</span><span>,
+</span><span>}
+</span><span>
+</span><span style="color:#ff7733;">fn </span><span style="color:#ffb454;">main</span><span>() {
+</span><span>    </span><span style="color:#ff7733;">let</span><span> thing </span><span style="color:#f29668;">= </span><span>Thing</span><span style="color:#f29668;">::</span><span>from(u2</span><span style="color:#f29668;">::</span><span>new(</span><span style="color:#f29718;">0b11</span><span>))</span><span style="color:#bfbab0cc;">;
+</span><span>    </span><span style="color:#f07178;">println!</span><span>(</span><span style="color:#c2d94c;">&quot;</span><span style="color:#f29718;">{thing:?}</span><span style="color:#c2d94c;">&quot;</span><span>)</span><span style="color:#bfbab0cc;">;
+</span><span>}
+</span></code></pre>
+<p>In this case, we'd just see <code>Thing { value: 3 }</code> printed. What we actually want to see are the bitfields, meaning we need to have a <code>DebugBits</code> macro reading the field information. Since it's not really special, let's skip talking about it.</p>
+<p>Until this point, I had this hacky solution of passing field information across the macro boundary by using an internal, inert attribute.
+Then I finally realized I could adjust the macro organization a bit and save a lot of sanity:</p>
+<pre data-lang="rust" style="background-color:#0f1419;color:#bfbab0;" class="language-rust "><code class="language-rust" data-lang="rust"><span style="font-style:italic;color:#5c6773;">// Check a few invariants in bitsize and add
+</span><span style="font-style:italic;color:#5c6773;">// bitsize_internal as a *last*, non-inert
+</span><span style="font-style:italic;color:#5c6773;">// attribute macro, to execute it *last*.
+</span><span style="color:#bfbab0cc;">#</span><span>[</span><span style="color:#ffb454;">bitsize</span><span>(2)]
+</span><span style="color:#bfbab0cc;">#</span><span>[</span><span style="color:#ffb454;">derive</span><span>(DebugBits)]
+</span><span style="color:#ff7733;">struct </span><span style="color:#59c2ff;">Thing </span><span>{
+</span><span>    a</span><span style="color:#bfbab0cc;">: </span><span style="color:#ff7733;">bool</span><span>,
+</span><span>    b</span><span style="color:#bfbab0cc;">: </span><span style="color:#ff7733;">bool</span><span>,
+</span><span>}
+</span><span>
+</span><span style="font-style:italic;color:#5c6773;">/* after the bitsize expansion */
+</span><span style="font-style:italic;color:#5c6773;">// Derive Debug, which is easy since it can read all the field info
+</span><span style="color:#bfbab0cc;">#</span><span>[</span><span style="color:#ffb454;">derive</span><span>(DebugBits)]
+</span><span style="color:#bfbab0cc;">#</span><span>[</span><span style="color:#ffb454;">bitsize_internal</span><span>(2)]
+</span><span style="color:#ff7733;">struct </span><span style="color:#59c2ff;">Thing </span><span>{
+</span><span>    a</span><span style="color:#bfbab0cc;">: </span><span style="color:#ff7733;">bool</span><span>,
+</span><span>    b</span><span style="color:#bfbab0cc;">: </span><span style="color:#ff7733;">bool</span><span>,
+</span><span>}
+</span><span>
+</span><span style="font-style:italic;color:#5c6773;">/* after the derive(DebugBits) expansion */
+</span><span style="font-style:italic;color:#5c6773;">// Compress the fields, destroying field info *last*.
+</span><span style="color:#bfbab0cc;">#</span><span>[</span><span style="color:#ffb454;">bitsize_internal</span><span>(2)]
+</span><span style="color:#ff7733;">struct </span><span style="color:#59c2ff;">Thing </span><span>{
+</span><span>    a</span><span style="color:#bfbab0cc;">: </span><span style="color:#ff7733;">bool</span><span>,
+</span><span>    b</span><span style="color:#bfbab0cc;">: </span><span style="color:#ff7733;">bool</span><span>,
+</span><span>}
+</span><span>
+</span><span style="font-style:italic;color:#5c6773;">/* after the bitsize_internal expansion */
+</span><span style="font-style:italic;color:#5c6773;">// Done
+</span><span style="color:#ff7733;">struct </span><span style="color:#59c2ff;">Thing </span><span>{
+</span><span>    value</span><span style="color:#bfbab0cc;">:</span><span> u2,
+</span><span>}
+</span></code></pre>
+<p>At this point, the most important parts of <code>bilge</code> are done.</p>
+<p>Later on I added constructors and all these <em>fallible nested-struct enum-tuple array field accesses</em> I mentioned before (which is a bit more involved).</p>
+<h2 id="how-bilge-works"><a class="zola-anchor" href="#how-bilge-works" aria-label="Anchor link for: how-bilge-works">How bilge works</a></h2>
+<p>Our mouse packet example now looks like this:</p>
+<pre data-lang="rust" style="background-color:#0f1419;color:#bfbab0;" class="language-rust "><code class="language-rust" data-lang="rust"><span style="color:#bfbab0cc;">#</span><span>[</span><span style="color:#ffb454;">bitsize</span><span>(24)]
+</span><span style="color:#bfbab0cc;">#</span><span>[</span><span style="color:#ffb454;">derive</span><span>(FromBits)]
+</span><span style="color:#ff7733;">struct </span><span style="color:#59c2ff;">MousePacket </span><span>{
+</span><span>    left_clicked</span><span style="color:#bfbab0cc;">: </span><span style="color:#ff7733;">bool</span><span>,
+</span><span>    right_clicked</span><span style="color:#bfbab0cc;">: </span><span style="color:#ff7733;">bool</span><span>,
+</span><span>    middle_clicked</span><span style="color:#bfbab0cc;">: </span><span style="color:#ff7733;">bool</span><span>,
+</span><span>    other_important_bits</span><span style="color:#bfbab0cc;">:</span><span> u5,
+</span><span>    x_movement</span><span style="color:#bfbab0cc;">: </span><span style="color:#ff7733;">u8</span><span>,
+</span><span>    y_movement</span><span style="color:#bfbab0cc;">: </span><span style="color:#ff7733;">u8</span><span>,
+</span><span>}
+</span></code></pre>
+<p>The frontend is pretty similar to <code>modular-bitfield</code>, though <code>FromBits</code> and others are their own macro and the arbitrary width integers can be used for calculations, like primitives.</p>
+<p>We use <code>#[derive(FromBits)]</code> to also allow parsing the packet from raw bytes, similar to what <code>modular-bitfield</code> enables by default:</p>
+<pre data-lang="rust" style="background-color:#0f1419;color:#bfbab0;" class="language-rust "><code class="language-rust" data-lang="rust"><span>MousePacket</span><span style="color:#f29668;">::</span><span>from(u24</span><span style="color:#f29668;">::</span><span>new(</span><span style="color:#f29718;">0b00011000_00000011_00001_0_1_0</span><span>))</span><span style="color:#bfbab0cc;">;
+</span></code></pre>
+<p>Without it, we can still use the generated constructor:</p>
+<pre data-lang="rust" style="background-color:#0f1419;color:#bfbab0;" class="language-rust "><code class="language-rust" data-lang="rust"><span>MousePacket</span><span style="color:#f29668;">::</span><span>new(</span><span style="color:#f29718;">false</span><span style="color:#bfbab0cc;">, </span><span style="color:#f29718;">true</span><span style="color:#bfbab0cc;">, </span><span style="color:#f29718;">false</span><span style="color:#bfbab0cc;">, </span><span>u5</span><span style="color:#f29668;">::</span><span>new(</span><span style="color:#f29718;">0b00001</span><span>)</span><span style="color:#bfbab0cc;">, </span><span style="color:#f29718;">0b00000011</span><span style="color:#bfbab0cc;">, </span><span style="color:#f29718;">0b00011000</span><span>)</span><span style="color:#bfbab0cc;">;
+</span></code></pre>
+<p>Of course we also have getters and setters.</p>
+<h3 id="a-register-mapping-showcase"><a class="zola-anchor" href="#a-register-mapping-showcase" aria-label="Anchor link for: a-register-mapping-showcase">a register-mapping showcase</a></h3>
+<p>Just to show you another &quot;real&quot; example, here's the <em>bilge</em> based definition of an ARM register, without documentation:</p>
+<pre data-lang="rust" style="background-color:#0f1419;color:#bfbab0;" class="language-rust "><code class="language-rust" data-lang="rust"><span style="color:#bfbab0cc;">#</span><span>[</span><span style="color:#ffb454;">bitsize</span><span>(64)]
+</span><span style="color:#bfbab0cc;">#</span><span>[</span><span style="color:#ffb454;">derive</span><span>(DebugBits</span><span style="color:#bfbab0cc;">,</span><span> TryFromBits)]
+</span><span style="color:#bfbab0cc;">#</span><span>[</span><span style="color:#ffb454;">doc</span><span>(</span><span style="color:#ffb454;">alias</span><span>(</span><span style="color:#c2d94c;">&quot;GICR_TYPER&quot;</span><span>))]
+</span><span style="color:#ff7733;">struct </span><span style="color:#59c2ff;">RedistributorType </span><span>{
+</span><span>    affinity_value</span><span style="color:#bfbab0cc;">:</span><span> [</span><span style="color:#ff7733;">u8</span><span>; 4],
+</span><span>    max_ppi_num</span><span style="color:#bfbab0cc;">:</span><span> MaxPpiIntId,
+</span><span>    virtual_sgi_supported</span><span style="color:#bfbab0cc;">: </span><span style="color:#ff7733;">bool</span><span>,
+</span><span>    </span><span style="color:#bfbab0cc;">#</span><span>[</span><span style="color:#ffb454;">doc</span><span>(</span><span style="color:#ffb454;">alias</span><span>(</span><span style="color:#c2d94c;">&quot;CommonLPIAff&quot;</span><span>))]
+</span><span>    lpi_config_shared_by</span><span style="color:#bfbab0cc;">:</span><span> LpiConfigSharers,
+</span><span>    processor_number</span><span style="color:#bfbab0cc;">: </span><span style="color:#ff7733;">u16</span><span>,
+</span><span>    resident_vpe_recorded_as_id</span><span style="color:#bfbab0cc;">: </span><span style="color:#ff7733;">bool</span><span>,
+</span><span>    mpam_supported</span><span style="color:#bfbab0cc;">: </span><span style="color:#ff7733;">bool</span><span>,
+</span><span>    control_dpgs_supported</span><span style="color:#bfbab0cc;">: </span><span style="color:#ff7733;">bool</span><span>,
+</span><span>    is_last</span><span style="color:#bfbab0cc;">: </span><span style="color:#ff7733;">bool</span><span>,
+</span><span>    direct_lpi_supported</span><span style="color:#bfbab0cc;">: </span><span style="color:#ff7733;">bool</span><span>,
+</span><span>    dirty</span><span style="color:#bfbab0cc;">: </span><span style="color:#ff7733;">bool</span><span>,
+</span><span>    virtual_lpi_supported</span><span style="color:#bfbab0cc;">: </span><span style="color:#ff7733;">bool</span><span>,
+</span><span>    physical_lpi_supported</span><span style="color:#bfbab0cc;">: </span><span style="color:#ff7733;">bool</span><span>,
+</span><span>}
+</span><span>
+</span><span style="color:#bfbab0cc;">#</span><span>[</span><span style="color:#ffb454;">bitsize</span><span>(5)]
+</span><span style="color:#bfbab0cc;">#</span><span>[</span><span style="color:#ffb454;">derive</span><span>(Debug</span><span style="color:#bfbab0cc;">,</span><span> TryFromBits)]
+</span><span style="color:#ff7733;">enum </span><span style="color:#59c2ff;">MaxPpiIntId </span><span>{
+</span><span>    </span><span style="color:#f29718;">_31</span><span style="color:#bfbab0cc;">,
+</span><span>    </span><span style="color:#f29718;">_1087</span><span style="color:#bfbab0cc;">,
+</span><span>    </span><span style="color:#f29718;">_1119
+</span><span>}
+</span><span>
+</span><span style="color:#bfbab0cc;">#</span><span>[</span><span style="color:#ffb454;">bitsize</span><span>(2)]
+</span><span style="color:#bfbab0cc;">#</span><span>[</span><span style="color:#ffb454;">derive</span><span>(Debug</span><span style="color:#bfbab0cc;">,</span><span> FromBits)]
+</span><span style="color:#ff7733;">enum </span><span style="color:#59c2ff;">LpiConfigSharers </span><span>{
+</span><span>    All</span><span style="color:#bfbab0cc;">,
+</span><span>    SameAffinity3</span><span style="color:#bfbab0cc;">,
+</span><span>    SameAffinity3_2</span><span style="color:#bfbab0cc;">,
+</span><span>    SameAffinity3_2_1</span><span style="color:#bfbab0cc;">,
+</span><span>}
+</span><span>
+</span><span style="color:#ff7733;">fn </span><span style="color:#ffb454;">main</span><span>() {
+</span><span>    </span><span style="color:#ff7733;">let</span><span> value_from_hardware </span><span style="color:#f29668;">= </span><span style="color:#f29718;">0x4_0000_0000</span><span style="color:#bfbab0cc;">;
+</span><span>    </span><span style="color:#ff7733;">let</span><span> rt </span><span style="color:#f29668;">= </span><span>RedistributorType</span><span style="color:#f29668;">::</span><span>try_from(value_from_hardware)</span><span style="color:#f29668;">.</span><span style="color:#f07178;">unwrap</span><span>()</span><span style="color:#bfbab0cc;">;
+</span><span>    </span><span style="font-style:italic;color:#5c6773;">// panicked, since we got a wrong value for `MaxPpiIntId`
+</span><span>}
+</span></code></pre>
+<p>These doc aliases <a href="https://github.com/rust-lang/rust-analyzer/pull/14775">are pretty handy as well</a>.</p>
+<h3 id="easy-usage-explanations"><a class="zola-anchor" href="#easy-usage-explanations" aria-label="Anchor link for: easy-usage-explanations">easy usage explanations</a></h3>
+<p>If you want to start using <code>bilge</code>, the <code>README</code> contains some relevant information and usage:</p>
+<p><a href="https://crates.io/crates/bilge">crates.io/crates/bilge</a></p>
+<p><a href="https://lib.rs/crates/bilge">lib.rs/crates/bilge</a></p>
+<p><a href="https://github.com/hecatia-elegua/bilge">github.com/hecatia-elegua/bilge</a></p>
+<p>Feel free to talk about more usecases on github!</p>
+<h2 id="conclusion"><a class="zola-anchor" href="#conclusion" aria-label="Anchor link for: conclusion">Conclusion</a></h2>
+<p>By using a few ideas like &quot;attribute macros as a scope&quot; and &quot;type-centric design&quot;, we made our bitfield macro code a lot simpler while providing an easy frontend and without sacrificing performance, only increasing build times by a small amount compared to handmade code.</p>
+<p>I specifically want to reduce bit fiddling to a minimum, which means there are some open usecases to address (there might be more bitflags functionality and I want to add strides).</p>
+<p>The frontend and API should be as forward-compatible as possible to an integration of bitfields into rust, but <em>I think</em> I can't prophesy.</p>
+<p>Having said and built all this, I want to thank you for reading this far!</p>
+<p>This was my first longform post and took quite a while to write. I hope this finds some people who maybe know more about rust's internals and could guide me or help implementing arbitrary sized integers and bitfields into rust.</p>
+<p>If any bitfield crate maintainers read this: Could we somehow open up a working group / chat to merge at least some of our efforts and get bitfields into rust?</p>
+<p><a href="https://www.reddit.com/r/rust/comments/13ic0mf/no_more_bit_fiddling_and_introducing_bilge/">Discuss this article on /r/rust</a></p>
+<p><br><br><br></p>
+<div class="footnote-definition" id="1"><sup class="footnote-definition-label">1</sup>
+<p>If you're wondering what I think about the proliferation of bitfield crates, to quote another maintainer: &quot;I'm looking forward to the day where they can all die in a big fire as Rust includes it in the language.&quot;</p>
+</div>
+
+</main>
+
+    <div class="dark-mode-buttons">
+        <button class="dark-mode-button" id="dark-mode-on"><img src="https://hecatia-elegua.github.io/dark_mode.svg" width="24" height="24" alt="Dark mode" aria-label="dark mode toggle" title="Dark mode"></button>
+        <button class="dark-mode-button" id="dark-mode-off"><img src="https://hecatia-elegua.github.io/light_mode.svg" width="24" height="24" alt="Light mode" aria-label="light mode toggle" title="Light mode"></button>
+    </div>
+    <script>
+        const cls = document.body.classList;
+        const getSessionTheme = sessionStorage.getItem("theme");
+        if (getSessionTheme === "dark") {
+            cls.toggle("dark-mode", true);
+        } else if (getSessionTheme === "light") {
+            cls.toggle("dark-mode", false);
+        } else if (window.matchMedia("(prefers-color-scheme: dark)").matches) {
+            cls.toggle("dark-mode", true);
+        }
+
+        document.getElementById("dark-mode-on").addEventListener("click", function(e) {
+            cls.toggle("dark-mode", true);
+            sessionStorage.setItem("theme", "dark");
+        });
+        document.getElementById("dark-mode-off").addEventListener("click", function(e) {
+            cls.toggle("dark-mode", false);
+            sessionStorage.setItem("theme", "light");
+        });
+    </script>
+    <noscript>
+        <style>
+            .dark-mode-buttons {
+                display: none;
+            }
+        </style>
+    </noscript>
+</body>
+</html>
